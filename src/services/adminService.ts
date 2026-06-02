@@ -171,14 +171,9 @@ export const subscribeToRestaurants = (
   callback: (restaurants: Restaurant[]) => void
 ) => {
   const fetchRestaurants = async () => {
-    // Get currently authenticated admin details to authorize RPC call
-    const adminData = localStorage.getItem("admin");
-    const admin = adminData ? JSON.parse(adminData) : null;
-    const adminEmail = admin?.email || "";
-
-    const { data, error } = await supabase.rpc("admin_get_restaurants", {
-      p_admin_email: adminEmail,
-    });
+    // The RPC reads the admin email from the JWT — no client-side
+    // admin email lookup needed (Phase 1 + 2).
+    const { data, error } = await supabase.rpc("admin_get_restaurants");
 
     if (!error && data) {
       callback(data);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import {
   useNavigate,
   Routes,
@@ -14,6 +14,8 @@ import {
   Store as StoreIcon,
   BarChart3,
 } from "lucide-react";
+import { Loading } from "../../components/ui";
+import { useAuth } from "../../contexts/AuthContext";
 import DashboardHome from "./DashboardHome";
 import PendingRequests from "./PendingRequests";
 import AllRestaurants from "./AllRestaurants";
@@ -22,23 +24,25 @@ import Analytics from "./Analytics";
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [admin, setAdmin] = useState<any>(null);
+  const { admin, loading, signOut } = useAuth();
 
   useEffect(() => {
-    const adminData = localStorage.getItem("admin");
-    if (!adminData) {
+    if (!loading && !admin) {
       navigate("/admin/login");
-    } else {
-      setAdmin(JSON.parse(adminData));
     }
-  }, [navigate]);
+  }, [loading, admin, navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/admin/login");
   };
 
-  if (!admin) return null;
+  if (loading) {
+    return <Loading text="Verifying admin session..." />;
+  }
+  if (!admin) {
+    return null;
+  }
 
   const navItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },

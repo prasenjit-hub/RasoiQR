@@ -105,16 +105,6 @@ export const isValidPhone = (phone: string): boolean => {
 };
 
 /**
- * Hash password using SHA-256
- * Works on both HTTP and HTTPS (mobile and desktop)
- */
-export const hashPassword = async (password: string): Promise<string> => {
-  // Use crypto-js for consistent hashing across all platforms
-  const CryptoJS = (await import("crypto-js")).default;
-  return CryptoJS.SHA256(password).toString(CryptoJS.enc.Hex);
-};
-
-/**
  * Debounce function
  */
 export const debounce = <T extends (...args: any[]) => any>(

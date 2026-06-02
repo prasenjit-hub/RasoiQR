@@ -11,6 +11,7 @@ import RestaurantDashboard from "./pages/restaurant/Dashboard";
 // Admin panel
 import AdminLogin from "./pages/admin/LoginPage";
 import AdminDashboard from "./pages/admin/Dashboard";
+import ResetPasswordPage from "./pages/admin/ResetPasswordPage";
 
 // Customer ordering
 import CustomerMenu from "./pages/customer/CustomerMenu";
@@ -32,6 +33,7 @@ function App() {
 
         {/* Admin Panel Routes */}
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
         <Route path="/admin/*" element={<AdminDashboard />} />
 
         {/* Customer Ordering Route */}
