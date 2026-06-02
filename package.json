@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@supabase/supabase-js": "^2.86.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
