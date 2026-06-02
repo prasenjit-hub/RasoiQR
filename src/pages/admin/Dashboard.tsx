@@ -24,24 +24,24 @@ import Analytics from "./Analytics";
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { admin, loading, signOut } = useAuth();
+  const { admin, ready, signOut } = useAuth();
 
   useEffect(() => {
-    if (!loading && !admin) {
+    if (ready && !admin) {
       navigate("/admin/login");
     }
-  }, [loading, admin, navigate]);
+  }, [ready, admin, navigate]);
 
   const handleLogout = async () => {
     await signOut();
     navigate("/admin/login");
   };
 
-  if (loading) {
+  if (!ready) {
     return <Loading text="Verifying admin session..." />;
   }
   if (!admin) {
-    return null;
+    return <Loading text="Redirecting to login..." />;
   }
 
   const navItems = [
