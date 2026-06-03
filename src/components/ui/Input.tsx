@@ -1,4 +1,8 @@
-import React, { type InputHTMLAttributes, forwardRef } from "react";
+import React, {
+  type InputHTMLAttributes,
+  forwardRef,
+  useId,
+} from "react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -9,10 +13,13 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, helperText, icon, className = "", ...props }, ref) => {
+    const generatedId = useId();
+    const id = props.id ?? props.name ?? generatedId;
+
     return (
       <div className="w-full">
         {label && (
-          <label className="label" htmlFor={props.id || props.name}>
+          <label className="label" htmlFor={id}>
             {label}
             {props.required && <span className="text-error ml-1">*</span>}
           </label>
@@ -25,6 +32,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
           <input
             ref={ref}
+            id={id}
             className={`input ${icon ? "pl-10" : ""} ${
               error ? "border-error focus:ring-error" : ""
             } ${className}`}

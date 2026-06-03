@@ -20,17 +20,18 @@ import DashboardHome from "./DashboardHome";
 import PendingRequests from "./PendingRequests";
 import AllRestaurants from "./AllRestaurants";
 import Analytics from "./Analytics";
+import NotAuthorized from "./NotAuthorized";
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { admin, ready, signOut } = useAuth();
+  const { admin, user, ready, signOut } = useAuth();
 
   useEffect(() => {
-    if (ready && !admin) {
+    if (ready && !user) {
       navigate("/admin/login");
     }
-  }, [ready, admin, navigate]);
+  }, [ready, user, navigate]);
 
   const handleLogout = async () => {
     await signOut();
@@ -40,8 +41,11 @@ const AdminDashboard: React.FC = () => {
   if (!ready) {
     return <Loading text="Verifying admin session..." />;
   }
-  if (!admin) {
+  if (!user) {
     return <Loading text="Redirecting to login..." />;
+  }
+  if (!admin) {
+    return <NotAuthorized />;
   }
 
   const navItems = [

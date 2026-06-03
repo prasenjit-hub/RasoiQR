@@ -89,27 +89,25 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // Insert registration request into Supabase
-      const { error: insertError } = await supabase
-        .from("registration_requests")
-        .insert([
-          {
-            restaurant_name: formData.restaurant_name.trim(),
-            owner_name: formData.owner_name.trim(),
-            phone: formData.phone.replace(/[\s\-()]/g, ""),
-            email: formData.email.trim() || null,
-            city: formData.city.trim(),
-            address: formData.address.trim() || null,
-            restaurant_type: formData.restaurant_type,
-            heard_from: formData.heard_from || null,
-            notes: formData.notes.trim() || null,
-            status: "pending",
-          },
-        ])
-        .select();
+      // Phase 1 pattern: anon has no table GRANTs. Use the
+      // submit_registration_request SECURITY DEFINER RPC.
+      const { error: rpcError } = await supabase.rpc(
+        "submit_registration_request",
+        {
+          p_restaurant_name: formData.restaurant_name.trim(),
+          p_owner_name: formData.owner_name.trim(),
+          p_phone: formData.phone,
+          p_email: formData.email.trim(),
+          p_city: formData.city.trim(),
+          p_address: formData.address.trim() || null,
+          p_restaurant_type: formData.restaurant_type,
+          p_heard_from: formData.heard_from || null,
+          p_notes: formData.notes.trim() || null,
+        }
+      );
 
-      if (insertError) {
-        throw insertError;
+      if (rpcError) {
+        throw rpcError;
       }
 
       // Success!
@@ -117,11 +115,13 @@ const RegisterPage: React.FC = () => {
 
       // TODO: In production, send confirmation email to restaurant
       // TODO: Send notification to admin panel
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMsg =
+        err instanceof Error
+          ? err.message
+          : "Failed to submit registration. Please try again.";
       console.error("Registration error:", err);
-      setError(
-        err.message || "Failed to submit registration. Please try again."
-      );
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

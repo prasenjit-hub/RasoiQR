@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config";
 
 // Safe initialization to prevent crashes if Supabase is not yet configured
@@ -11,19 +11,37 @@ const isValidUrl = (url: string) => {
 };
 
 const finalUrl = isValidUrl(SUPABASE_URL) && SUPABASE_URL !== "YOUR_SUPABASE_URL"
-  ? SUPABASE_URL 
+  ? SUPABASE_URL
   : "https://placeholder-project.supabase.co";
 
 const finalAnonKey = SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY"
   ? SUPABASE_ANON_KEY
   : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key_until_configured";
 
-// Initialize Supabase client
-export const supabase = createClient(finalUrl, finalAnonKey, {
+// Initialize Supabase client (Phase 2.7 — @supabase/ssr migration).
+//
+// Why @supabase/ssr instead of @supabase/supabase-js:
+//   - Stores session in COOKIES (document.cookie) instead of localStorage
+//   - Bypasses two P0 bugs in @supabase/supabase-js v2.86:
+//       1. Web Locks API deadlock in getSession/getUser
+//          (https://github.com/supabase/supabase-js/issues/2111)
+//       2. Async callback deadlock in onAuthStateChange
+//          (https://supabase.com/docs/reference/javascript/auth-onauthstatechange)
+//   - createBrowserClient is a singleton by default — same instance
+//     regardless of how many times we call this function
+//   - All consumer files (auth/admin/restaurant services + pages) keep
+//     working unchanged: same `supabase` export, same API surface
+//
+// Auth options explained:
+//   - autoRefreshToken / persistSession / detectSessionInUrl:
+//     standard Supabase defaults
+//   - flowType: 'pkce' — modern, more secure flow
+export const supabase = createBrowserClient(finalUrl, finalAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+    flowType: "pkce",
   },
 });
 

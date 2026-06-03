@@ -44,14 +44,12 @@ const AllRestaurants: React.FC = () => {
 
   // Real-time subscription
   useEffect(() => {
-    const subscription = subscribeToRestaurants((data) => {
+    const cleanup = subscribeToRestaurants((data) => {
       setRestaurants(data);
       setLoading(false);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return cleanup;
   }, []);
 
   // Filter restaurants

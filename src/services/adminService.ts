@@ -15,7 +15,7 @@ import {
 // Get all pending registration requests with real-time updates
 export const subscribeToPendingRequests = (
   callback: (requests: RegistrationRequest[]) => void
-) => {
+): (() => void) => {
   // Initial fetch
   const fetchPending = async () => {
     const { data, error } = await supabase
@@ -32,7 +32,7 @@ export const subscribeToPendingRequests = (
   fetchPending();
 
   // Subscribe to changes
-  const subscription = supabase
+  const channel = supabase
     .channel("pending-requests")
     .on(
       "postgres_changes",
@@ -48,7 +48,10 @@ export const subscribeToPendingRequests = (
     )
     .subscribe();
 
-  return subscription;
+  // Phase 3.7: return React-idiomatic cleanup function
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 // Create restaurant account from registration request
@@ -169,7 +172,7 @@ export const rejectRegistrationRequest = async (
 // Get all restaurants with real-time updates
 export const subscribeToRestaurants = (
   callback: (restaurants: Restaurant[]) => void
-) => {
+): (() => void) => {
   const fetchRestaurants = async () => {
     // The RPC reads the admin email from the JWT — no client-side
     // admin email lookup needed (Phase 1 + 2).
@@ -182,7 +185,7 @@ export const subscribeToRestaurants = (
 
   fetchRestaurants();
 
-  const subscription = supabase
+  const channel = supabase
     .channel("restaurants")
     .on(
       "postgres_changes",
@@ -197,7 +200,10 @@ export const subscribeToRestaurants = (
     )
     .subscribe();
 
-  return subscription;
+  // Phase 3.7: return React-idiomatic cleanup function
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 // Toggle restaurant block/unblock status

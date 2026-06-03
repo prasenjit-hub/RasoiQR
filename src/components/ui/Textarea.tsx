@@ -1,4 +1,8 @@
-import { type TextareaHTMLAttributes, forwardRef } from "react";
+import {
+  type TextareaHTMLAttributes,
+  forwardRef,
+  useId,
+} from "react";
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
@@ -8,16 +12,20 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, error, helperText, className = "", ...props }, ref) => {
+    const generatedId = useId();
+    const id = props.id ?? props.name ?? generatedId;
+
     return (
       <div className="w-full">
         {label && (
-          <label className="label" htmlFor={props.id || props.name}>
+          <label className="label" htmlFor={id}>
             {label}
             {props.required && <span className="text-error ml-1">*</span>}
           </label>
         )}
         <textarea
           ref={ref}
+          id={id}
           className={`input resize-none ${
             error ? "border-error focus:ring-error" : ""
           } ${className}`}

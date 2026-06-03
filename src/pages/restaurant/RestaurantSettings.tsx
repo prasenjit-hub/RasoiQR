@@ -1,59 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Download, QrCode as QrCodeIcon, ExternalLink } from "lucide-react";
-import { Card, Button, Loading, Alert } from "../../components/ui";
+import { Card, Button, Alert } from "../../components/ui";
 import { QRCodeSVG } from "qrcode.react";
-import { supabase } from "../../config/supabase";
-import type { Restaurant } from "../../config/supabase";
+import { useAuth } from "../../contexts/AuthContext";
 
 const RestaurantSettings: React.FC = () => {
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const fetchRestaurant = async () => {
-      try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-        if (!user.restaurant_id) {
-          setError("Restaurant ID not found");
-          setLoading(false);
-          return;
-        }
-
-        if (user.restaurant_id === "demo-restaurant-id") {
-          setRestaurant({
-            id: "demo-restaurant-id",
-            name: "The Royal Rasoi (Demo)",
-            slug: "demo-restaurant",
-            phone: "+91 98765 43210",
-            email: "demorestaurant@gmail.com",
-            subscription_plan: "pro",
-            status: "active",
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-          setLoading(false);
-          return;
-        }
-
-        const { data, error: fetchError } = await supabase
-          .from("restaurants")
-          .select("*")
-          .eq("id", user.restaurant_id)
-          .single();
-
-        if (fetchError) throw fetchError;
-        setRestaurant(data);
-      } catch {
-        setError("Failed to load restaurant details");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRestaurant();
-  }, []);
+  const { restaurant } = useAuth();
 
   const downloadQRCode = () => {
     if (!restaurant) return;
@@ -81,12 +33,8 @@ const RestaurantSettings: React.FC = () => {
     img.src = "data:image/svg+xml;base64," + btoa(svgData);
   };
 
-  if (loading) {
-    return <Loading text="Loading settings..." />;
-  }
-
-  if (error || !restaurant) {
-    return <Alert type="error" message={error || "Restaurant not found"} />;
+  if (!restaurant) {
+    return <Alert type="error" message="Restaurant not found" />;
   }
 
   const menuUrl = `${window.location.origin}/menu/${restaurant.slug}`;

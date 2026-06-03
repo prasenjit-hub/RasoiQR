@@ -23,40 +23,44 @@ import {
 } from "../../services/restaurantService";
 import type { Order } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
+import { useAuth } from "../../contexts/AuthContext";
 
 const Orders: React.FC = () => {
+  const { restaurant } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("pending");
-  const prevOrderCountRef = useRef(0);
+  // Phase 3.7: useRef for closure-safe access to latest orders
+  // without re-running the effect on every state change (fixes
+  // the infinite loop bug from including `orders` in useEffect deps).
+  const ordersRef = useRef<Order[]>([]);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.restaurant_id) return;
+    if (!restaurant) return;
 
-    const subscription = subscribeToOrders(user.restaurant_id, (data) => {
-      // Play sound if new order arrived
-      if (data.length > prevOrderCountRef.current) {
+    const cleanup = subscribeToOrders(restaurant.id, (data) => {
+      // Phase 3.7 fix: use ref for closure-safe access to latest orders
+      // without re-running the effect on every state change.
+      const prev = ordersRef.current;
+      if (data.length > prev.length) {
         const newOrders = data.filter(
           (order) =>
-            order.status === "pending" && !orders.find((o) => o.id === order.id)
+            order.status === "pending" && !prev.find((o) => o.id === order.id)
         );
         if (newOrders.length > 0) {
           playSound("notification");
         }
       }
-      prevOrderCountRef.current = data.length;
+      ordersRef.current = data;
       setOrders(data);
       setLoading(false);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    return cleanup;
+  }, [restaurant]);
 
   const filteredOrders = orders
     .filter((order) => order.status === statusFilter)

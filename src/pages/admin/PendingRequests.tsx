@@ -42,14 +42,12 @@ const PendingRequests: React.FC = () => {
 
   // Real-time subscription
   useEffect(() => {
-    const subscription = subscribeToPendingRequests((data) => {
+    const cleanup = subscribeToPendingRequests((data) => {
       setRequests(data);
       setLoading(false);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return cleanup;
   }, []);
 
   const handleCreateAccount = (request: RegistrationRequest) => {

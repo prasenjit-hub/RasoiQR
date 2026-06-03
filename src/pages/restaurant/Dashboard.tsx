@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   useNavigate,
   Routes,
   Route,
   Link,
   useLocation,
+  Navigate,
 } from "react-router-dom";
 import {
   Store as StoreIcon,
@@ -15,39 +16,34 @@ import {
   FileText,
   Settings,
 } from "lucide-react";
+import { Loading } from "../../components/ui";
+import { useAuth } from "../../contexts/AuthContext";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import Menu from "./Menu";
 import Reports from "./Reports";
 import RestaurantSettings from "./RestaurantSettings";
+import NotAuthorized from "../admin/NotAuthorized";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<any>(null);
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const { user, restaurant, ready, signOut } = useAuth();
 
-  useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (!userData) {
-      navigate("/login");
-    } else {
-      const parsedUser = JSON.parse(userData);
-      setUser(parsedUser);
-      // In real app, fetch restaurant data
-      setRestaurant({
-        name: "Demo Restaurant",
-        slug: "demo-restaurant",
-      });
-    }
-  }, [navigate]);
+  if (!ready) {
+    return <Loading text="Verifying session..." />;
+  }
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!restaurant) {
+    return <NotAuthorized />;
+  }
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/login");
   };
-
-  if (!user) return null;
 
   const navItems = [
     { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
@@ -67,7 +63,7 @@ const RestaurantDashboard: React.FC = () => {
               <StoreIcon className="w-8 h-8 text-accent" />
               <div>
                 <h1 className="text-lg font-bold text-text">
-                  {restaurant?.name || "Restaurant"}
+                  {restaurant.name}
                 </h1>
                 <p className="text-xs text-text-secondary">{user.email}</p>
               </div>

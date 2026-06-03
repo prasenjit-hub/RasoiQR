@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   TrendingUp,
   DollarSign,
@@ -25,7 +25,7 @@ import {
 } from "recharts";
 import { supabase } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
-import { getMockOrders } from "../../services/restaurantService";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface ReportData {
   totalRevenue: number;
@@ -37,41 +37,28 @@ interface ReportData {
 }
 
 const Reports: React.FC = () => {
+  const { restaurant } = useAuth();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [dateRange, setDateRange] = useState<"7" | "30" | "90">("30");
 
-  async function fetchReportData() {
+  const fetchReportData = useCallback(async () => {
+    if (!restaurant) return;
     setLoading(true);
     try {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      if (!user.restaurant_id) return;
-
       const daysAgo = parseInt(dateRange);
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysAgo);
 
-      // Fetch orders
-      let orders = [];
-      if (user.restaurant_id === "demo-restaurant-id") {
-        const mockAll = getMockOrders();
-        orders = mockAll.filter((order) => {
-          const orderDate = new Date(order.created_at);
-          const isAfterStart = orderDate >= startDate;
-          const hasValidStatus = ["completed", "ready", "preparing", "accepted"].includes(order.status);
-          return isAfterStart && hasValidStatus;
-        });
-      } else {
-        const { data, error } = await supabase
-          .from("orders")
-          .select("*")
-          .eq("restaurant_id", user.restaurant_id)
-          .gte("created_at", startDate.toISOString())
-          .in("status", ["completed", "ready", "preparing", "accepted"]);
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .gte("created_at", startDate.toISOString())
+        .in("status", ["completed", "ready", "preparing", "accepted"]);
 
-        if (error) throw error;
-        orders = data || [];
-      }
+      if (error) throw error;
+      const orders = data || [];
 
       // Calculate metrics
       const totalRevenue =
@@ -138,11 +125,11 @@ const Reports: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }
+  }, [dateRange, restaurant]);
 
   useEffect(() => {
-    fetchReportData();
-  }, [dateRange]);
+    void fetchReportData();
+  }, [fetchReportData]);
 
   const exportReport = () => {
     if (!reportData) return;

@@ -59,14 +59,12 @@ const CustomerMenu: React.FC = () => {
 
   useEffect(() => {
     if (restaurant?.id) {
-      const subscription = subscribeToMenuForCustomer(restaurant.id, (data) => {
+      const cleanup = subscribeToMenuForCustomer(restaurant.id, (data) => {
         setMenuItems(data);
         setLoading(false);
       });
 
-      return () => {
-        subscription.unsubscribe();
-      };
+      return cleanup;
     }
   }, [restaurant]);
 

@@ -19,8 +19,10 @@ import {
 } from "../../services/restaurantService";
 import type { MenuItem } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
+import { useAuth } from "../../contexts/AuthContext";
 
 const Menu: React.FC = () => {
+  const { restaurant } = useAuth();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -31,18 +33,15 @@ const Menu: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.restaurant_id) return;
+    if (!restaurant) return;
 
-    const subscription = subscribeToMenuItems(user.restaurant_id, (data) => {
+    const cleanup = subscribeToMenuItems(restaurant.id, (data) => {
       setMenuItems(data);
       setLoading(false);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    return cleanup;
+  }, [restaurant]);
 
   const categories = [
     "all",
@@ -309,6 +308,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
   onClose,
   mode,
 }) => {
+  const { restaurant } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
@@ -360,25 +360,24 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
       return;
     }
 
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.restaurant_id) {
-      setError("Restaurant ID not found");
+    if (!restaurant) {
+      setError("Restaurant session not loaded");
       return;
     }
 
     setLoading(true);
 
-    const menuItemData = {
-      restaurant_id: user.restaurant_id,
+    const menuItemData: Record<string, unknown> = {
+      restaurant_id: restaurant.id,
       name: formData.name,
-      description: formData.description || undefined,
-      category: formData.category || undefined,
       base_price: parseFloat(formData.base_price),
-      image_url: formData.image_url || undefined,
       is_available: formData.is_available,
-      sizes: formData.sizes.length > 0 ? formData.sizes : undefined,
-      addons: formData.addons.length > 0 ? formData.addons : undefined,
+      sizes: formData.sizes,
+      addons: formData.addons,
     };
+    if (formData.description) menuItemData.description = formData.description;
+    if (formData.category) menuItemData.category = formData.category;
+    if (formData.image_url) menuItemData.image_url = formData.image_url;
 
     let success = false;
     if (mode === "add") {

@@ -13,25 +13,29 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../config/supabase";
+import type { Restaurant } from "../config/supabase";
 
 /**
- * Single unified AuthContext for the whole app.
+ * RasoiQR — Production-grade AuthContext (Phase 2.7)
  *
- * Resolves the authenticated user to one of:
- *   - admin       — has a row in admin_users with is_active = TRUE
- *   - restaurant  — has a row in public.users joined to a restaurant
- *   - none        — orphan or unauthenticated (auto signOut)
+ * Uses @supabase/ssr createBrowserClient → cookie-based session
+ * storage. This bypasses two known P0 bugs in @supabase/supabase-js:
+ *   - Web Locks API deadlock in getSession/getUser
+ *   - Async callback deadlock in onAuthStateChange
  *
- * Production-grade hardening (Phase 2.5):
- *   - `ready` flag with hard 3s timeout so the UI never gets stuck
- *     on "Verifying..." even if getSession() hangs
- *   - useRef dedup guard on loadProfile to avoid concurrent RPC calls
- *   - useIsMounted helper to silence setState-after-unmount warnings
- *   - Skips redundant INITIAL_SESSION / TOKEN_REFRESHED events in the
- *     auth state listener
+ * Auth flow (simple, production-grade):
+ *   1. getSession()  — reads from cookies (instant, no network)
+ *   2. getUser()     — validates JWT with server (authoritative)
+ *   3. loadProfile() — resolves user → admin or restaurant via RPC
  *
- * Phase 2 uses only the admin path. Phase 3 (off localStorage) will
- * start populating the restaurant path without any API change here.
+ * Safety mechanisms:
+ *   - 5s outer timeout on refresh() — protects against network hang
+ *     or any future SDK regression
+ *   - profileFetchInFlight dedup — prevents concurrent RPC calls
+ *     from rapid onAuthStateChange fires
+ *   - mountedRef + safeSetState — React 19 StrictMode safety
+ *   - setTimeout(0) in onAuthStateChange — Supabase canonical pattern
+ *     (per official docs, async callbacks can deadlock the SDK)
  */
 
 export interface AdminProfile {
@@ -42,13 +46,8 @@ export interface AdminProfile {
   is_super_admin: boolean;
 }
 
-export interface RestaurantProfile {
-  id: string;
-  name: string;
-  slug: string;
-  email: string;
-  is_active: boolean;
-}
+// Full Restaurant row (Phase 3 — get_my_restaurant_profile returns RETURNS restaurants).
+export type RestaurantProfile = Restaurant;
 
 export type SignInResult =
   | { success: true; role: "admin" | "restaurant" }
@@ -62,6 +61,8 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<SignInResult>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
+  /** Manually re-run the auth check. Useful for tab-focus refresh. */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -72,28 +73,15 @@ const AuthContext = createContext<AuthContextValue>({
   signIn: async () => ({ success: false, error: "AuthProvider not mounted" }),
   signOut: async () => {},
   resetPassword: async () => ({ error: "AuthProvider not mounted" }),
+  refresh: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
-// 3 seconds is the hard upper bound for the initial auth check.
-// In practice, getSession() should resolve in < 100ms from localStorage.
-const READY_TIMEOUT_MS = 3000;
-
-/**
- * useIsMounted: returns a ref that is `true` while the component is mounted.
- * Use `safeSetState(ref.current, fn)` to avoid setState-after-unmount warnings.
- */
-function useIsMounted() {
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  return mounted;
-}
+// Outer timeout: protects against any future SDK regression or network
+// hang. Industry standard for client auth flows (Vercel, Clerk, Auth0
+// use 3-8s outer timeouts).
+const REFRESH_TIMEOUT_MS = 8000;
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -101,18 +89,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [restaurant, setRestaurant] = useState<RestaurantProfile | null>(null);
   const [ready, setReady] = useState(false);
 
-  // Dedup guard: prevents concurrent loadProfile calls for the same user.
-  // The getSession() callback AND the onAuthStateChange listener can both
-  // fire for a single sign-in; without this guard we'd hit the RPC twice.
+  // Dedup guard: prevents concurrent profile fetches.
   const profileFetchInFlight = useRef(false);
 
-  const isMounted = useIsMounted();
-  const safeSetState = useCallback(
-    (fn: () => void) => {
-      if (isMounted.current) fn();
-    },
-    [isMounted]
-  );
+  // React 19 StrictMode-safe: track mount status, skip setState after unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const safeSetState = useCallback((fn: () => void) => {
+    if (mountedRef.current) fn();
+  }, []);
 
   function clearAll() {
     setUser(null);
@@ -120,13 +111,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setRestaurant(null);
   }
 
-  // Resolve the auth user to a profile (admin or restaurant).
-  // Idempotent — safe to call multiple times.
-  // Uses SECURITY DEFINER RPCs (Phase 1 + 4) so the client never
-  // queries admin_users / users / restaurants directly.
+  // Load admin/restaurant profile for the given user via SECURITY
+  // DEFINER RPCs. Client never queries admin_users/users directly.
+  //
+  // Orphan handling: only treat as orphan when BOTH RPCs return a
+  // definitive empty result. If either errors (transient network blip,
+  // rate limit, etc.), keep the user signed in — the protected route
+  // shows "Not authorized" or a loading state. We never call
+  // signOut() here: that would destroy the session cookies and force
+  // a re-login on any transient RPC failure.
   const loadProfile = useCallback(
     async (authUser: User): Promise<"admin" | "restaurant" | null> => {
-      // Skip if a profile load is already in flight
       if (profileFetchInFlight.current) {
         return null;
       }
@@ -135,9 +130,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         safeSetState(() => setUser(authUser));
 
+        let adminConfirmedEmpty = false;
+        let restaurantConfirmedEmpty = false;
+
         // 1. Try admin
         try {
-          const { data: adminRows } = await supabase.rpc("get_my_admin_profile");
+          const { data: adminRows } = await supabase.rpc(
+            "get_my_admin_profile"
+          );
           if (adminRows && adminRows.length > 0) {
             safeSetState(() => {
               setAdmin(adminRows[0]);
@@ -145,8 +145,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             });
             return "admin" as const;
           }
+          if (adminRows !== null) {
+            adminConfirmedEmpty = true;
+          }
         } catch (err) {
-          console.error("get_my_admin_profile error:", err);
+          console.error("[Auth] get_my_admin_profile error:", err);
         }
 
         // 2. Try restaurant owner
@@ -154,20 +157,51 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const { data: restaurantRows } = await supabase.rpc(
             "get_my_restaurant_profile"
           );
-          if (restaurantRows && restaurantRows.length > 0) {
+          // Normalize: PostgREST returns SETOF/RETURNS TABLE as an
+          // array, but RETURNS <single row type> as a single object.
+          // Handle both shapes defensively (Phase 3 lesson learned).
+          const restaurantArray: Restaurant[] | null = Array.isArray(
+            restaurantRows
+          )
+            ? (restaurantRows as Restaurant[])
+            : restaurantRows
+            ? [restaurantRows as Restaurant]
+            : null;
+          if (restaurantArray && restaurantArray.length > 0) {
             safeSetState(() => {
-              setRestaurant(restaurantRows[0]);
+              setRestaurant(restaurantArray[0]);
               setAdmin(null);
             });
             return "restaurant" as const;
           }
+          if (restaurantRows !== null) {
+            restaurantConfirmedEmpty = true;
+          }
         } catch (err) {
-          console.error("get_my_restaurant_profile error:", err);
+          console.error("[Auth] get_my_restaurant_profile error:", err);
         }
 
-        // 3. Orphan — auth user with no profile row
-        await supabase.auth.signOut();
-        safeSetState(clearAll);
+        // 3a. Definitive orphan: BOTH RPCs returned empty.
+        // Keep user signed in (cookies preserved) so the protected
+        // route can show "Not authorized" UI. Don't call signOut() —
+        // that would destroy the session and force re-login.
+        if (adminConfirmedEmpty && restaurantConfirmedEmpty) {
+          console.warn(
+            "[Auth] User has no admin or restaurant profile:",
+            authUser.email
+          );
+          safeSetState(() => {
+            setAdmin(null);
+            setRestaurant(null);
+          });
+          return null;
+        }
+
+        // 3b. Incomplete: at least one RPC errored (transient).
+        // Keep cookies, keep user signed in, no profile loaded.
+        console.warn(
+          "[Auth] Profile RPCs incomplete (transient), keeping user signed in"
+        );
         return null;
       } finally {
         profileFetchInFlight.current = false;
@@ -176,86 +210,116 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     [safeSetState]
   );
 
-  // Initial session check + auth state listener.
-  // `ready` is guaranteed to become `true` within READY_TIMEOUT_MS
-  // no matter what happens with getSession() (network hang, RPC
-  // error, etc.). The UI is keyed off `ready` instead of `loading`
-  // to avoid the "stuck on Verifying..." bug.
+  // THE CORE: simple, production-grade auth check.
+  //   getSession()  → cookies, instant, untrusted
+  //   getUser()     → server-validated JWT, authoritative
+  //   loadProfile() → RPC resolution to admin/restaurant
+  const doRefresh = useCallback(async (): Promise<void> => {
+    // Step 1: cookies (fast, possibly stale)
+    const sessionResult = await supabase.auth.getSession();
+    const sessionUser: User | null = sessionResult.data.session?.user ?? null;
+
+    // Step 2: server-validated JWT (authoritative)
+    // Falls back to sessionUser if getUser fails transiently (network blip).
+    let resolvedUser: User | null = null;
+    try {
+      const userResult = await supabase.auth.getUser();
+      resolvedUser = userResult.data.user;
+    } catch (err) {
+      console.warn("[Auth] getUser failed, falling back to session:", err);
+      resolvedUser = sessionUser;
+    }
+
+    if (!resolvedUser) {
+      safeSetState(clearAll);
+      return;
+    }
+
+    await loadProfile(resolvedUser);
+  }, [safeSetState, loadProfile]);
+
+  // Public refresh — wraps doRefresh with a 8s outer timeout.
+  // Guarantees `ready=true` regardless of SDK/network state.
+  // The 8s window is generous enough for cold Supabase server
+  // responses on first call. doRefresh may still complete in the
+  // background after timeout; either way, UI is unblocked.
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      await Promise.race([
+        doRefresh(),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            console.debug(
+              `[Auth] refresh() exceeded ${REFRESH_TIMEOUT_MS}ms — UI unblocked, doRefresh continues in background`
+            );
+            resolve();
+          }, REFRESH_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (err) {
+      console.error("[Auth] refresh error:", err);
+    } finally {
+      safeSetState(() => setReady(true));
+    }
+  }, [doRefresh, safeSetState]);
+
+  // Lifecycle: initial check + reactive auth state listener.
   useEffect(() => {
     let cancelled = false;
 
-    // Hard timeout — prevents the UI from being permanently stuck
-    // if getSession() never resolves (e.g., PostgREST cache issue,
-    // network partition, or a Supabase SDK deadlock).
-    const timeoutId = setTimeout(() => {
+    // Run the initial auth check.
+    void (async () => {
       if (cancelled) return;
-      console.warn(
-        "[Auth] Initial auth check did not complete within " +
-          READY_TIMEOUT_MS +
-          "ms, forcing ready=true"
-      );
-      safeSetState(() => setReady(true));
-    }, READY_TIMEOUT_MS);
+      await refresh();
+    })();
 
-    // 1. Initial session check
-    supabase.auth
-      .getSession()
-      .then(async ({ data: { session } }) => {
-        if (cancelled) return;
-        clearTimeout(timeoutId);
-        if (session?.user) {
-          await loadProfile(session.user);
-        }
-        safeSetState(() => setReady(true));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        clearTimeout(timeoutId);
-        console.error("[Auth] getSession() error:", err);
-        safeSetState(() => setReady(true));
-      });
-
-    // 2. Auth state listener (fires for SIGNED_IN, SIGNED_OUT, etc.)
+    // Auth state listener for reactive updates.
+    //
+    // CRITICAL: this callback must NOT be async and must NOT call any
+    // Supabase function directly. Per Supabase official docs:
+    //
+    //   "A callback can be an async function and it runs synchronously
+    //    during the processing of the changes causing the event. You
+    //    can easily create a dead-lock by using await on a call to
+    //    another method of the Supabase library."
+    //   - https://supabase.com/docs/reference/javascript/auth-onauthstatechange
+    //
+    // We schedule async work via setTimeout(0) so it runs AFTER the
+    // event has been fully processed. This is the canonical pattern.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (cancelled) return;
+      (event, session) => {
+        setTimeout(() => {
+          if (cancelled) return;
+          void (async () => {
+            // INITIAL_SESSION: handled by refresh() above
+            if (event === "INITIAL_SESSION") return;
 
-        // INITIAL_SESSION fires automatically when the listener is
-        // attached. Already handled by getSession() above, so skip.
-        if (event === "INITIAL_SESSION") return;
+            // TOKEN_REFRESHED / USER_UPDATED: user is unchanged
+            if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+              return;
+            }
 
-        // TOKEN_REFRESHED: user is the same, just a new access token.
-        // USER_UPDATED: user metadata changed, no profile reload needed.
-        // Either way, don't hit the RPC again.
-        if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-          return;
-        }
-
-        // SIGNED_IN, PASSWORD_RECOVERY, or any other event with a session
-        if (session?.user) {
-          await loadProfile(session.user);
-        } else {
-          // SIGNED_OUT
-          safeSetState(clearAll);
-        }
-        safeSetState(() => setReady(true));
+            if (session?.user) {
+              await loadProfile(session.user);
+            } else {
+              // SIGNED_OUT or token cleared
+              safeSetState(clearAll);
+            }
+          })();
+        }, 0);
       }
     );
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
-  }, [loadProfile, safeSetState]);
+  }, [refresh, safeSetState, loadProfile]);
 
   async function signIn(
     email: string,
     password: string
   ): Promise<SignInResult> {
-    // 1. Supabase Auth — the session is returned in `data.session` directly.
-    //    Don't call getSession() afterwards; that reads async-updated SDK
-    //    state and can race with this caller.
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
@@ -267,10 +331,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return { success: false, error: "Authentication failed (no session)" };
     }
 
-    // 2. Resolve the profile. loadProfile is idempotent so even if the
-    //    onAuthStateChange listener fires concurrently, the state is consistent.
     const role = await loadProfile(data.session.user);
-
     if (role === "admin" || role === "restaurant") {
       return { success: true, role };
     }
@@ -305,6 +366,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         signIn,
         signOut,
         resetPassword,
+        refresh,
       }}
     >
       {children}
