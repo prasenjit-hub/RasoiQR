@@ -71,6 +71,13 @@ src/
       NotAuthorized.tsx        # shown when auth user has no profile row
   services/                    # restaurantService.ts, adminService.ts
   components/ui/               # re-exported via index.ts
+
+database/
+  setup.sql                    # run-once comprehensive DB setup (tables + hardening + RPCs)
+  migrations/                  # incremental SQL migrations (000-011)
+  scripts/
+    create-admin.mjs           # bootstrap first admin user (uses .env.admin)
+    smoke-test.mjs             # integration test (4/4 expected)
 ```
 
 ## Database schema & migrations
@@ -79,7 +86,11 @@ src/
 - All have RLS enabled. Direct client queries against `admin_users` and `users` are blocked by RLS.
 - **Never** let the client query `admin_users` / `users` directly. Use the SECURITY DEFINER RPCs.
 
-### Migrations (run in order)
+### Run-from-scratch
+
+`database/setup.sql` is the single file that creates everything: tables, RPCs, RLS policies, triggers, indexes, realtime. It includes all hardened production settings.
+
+### Migrations (run in order, additive only)
 
 | Migration | Purpose |
 |---|---|
@@ -93,6 +104,31 @@ src/
 | 008 | `get_my_restaurant_profile` returns `SETOF restaurants` (array consistency) |
 | 010 | Add `category TEXT` to `menu_items` |
 | 011 | Fix ambiguous `order_number` in `customer_create_order` RETURNING clause |
+
+### Key RPCs
+
+- `customer_create_order` — anon-callable, SECURITY DEFINER, server-side price validation, migration 011 fixes ambiguous RETURNING
+- `admin_create_restaurant` — authenticated-only, `PERFORM assert_admin()` guard
+- `is_admin()` — SECURITY DEFINER helper used by RLS policies on registration_requests / restaurants / orders
+- `get_my_admin_profile` / `get_my_restaurant_profile` — profile lookup for AuthContext
+- `submit_registration_request` — anon-callable, server-side validation
+
+## Launch phase completion (LAUNCH_PLAN.md)
+
+| Phase | Status |
+|---|---|
+| Phase 0.1 — Rotate Supabase keys | ❌ Not done (old keys still in `.env`) |
+| Phase 0.2 — Remove hardcoded admin | ✅ Done |
+| Phase 1 — Database hardening | ✅ Done |
+| Phase 2 — Admin Supabase Auth | ✅ Done |
+| Phase 3 — Off localStorage | ✅ Done |
+| Phase 4 — Customer order flow | ✅ Done |
+| Phase 5 — Security headers + Vercel | ✅ Done |
+| Phase 6.1 — Stronger temp passwords | ❌ Not done |
+| Phase 6.2 — Forgot password flow | ❌ Not done |
+| Phase 6.3 — Trial expiry trigger | ❌ Not done |
+| Phase 6.4 — Order status state machine | ❌ Not done |
+| Phase 7 — Full launch test | ❌ Not done |
 
 ## Smoke test as integration test
 
@@ -114,3 +150,4 @@ Run after every migration change.
 - **Self-hosted Inter font** via `@fontsource/inter` (4 weights), not Google Fonts `<link>`
 - **`lock: async (_, _, fn) => fn()`** no longer needed (removed in Phase 2.7 — @supabase/ssr uses cookies, not localStorage + Web Locks)
 - **Pre-existing lint warnings** (`any` types, `set-state-in-effect`) are unaddressed — don't bother fixing unless editing those files
+- **Admin SELECT RLS policies** for `restaurants` and `orders` are added in `setup.sql` hardening section (line ~750+). If running migrations individually, run `CREATE POLICY "Admins can view all restaurants" ON restaurants FOR SELECT TO authenticated USING (is_admin())` and `CREATE POLICY "Admins can view all orders" ON orders FOR SELECT TO authenticated USING (is_admin())` separately.
