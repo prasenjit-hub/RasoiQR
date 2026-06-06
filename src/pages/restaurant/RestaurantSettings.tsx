@@ -140,7 +140,7 @@ const RestaurantSettings: React.FC = () => {
           <li>• Upload logo and cover images</li>
           <li>• Customize ordering page theme</li>
           <li>• Set business hours and holidays</li>
-          <li>• Configure tax rates and payment methods</li>
+          <li>• Configure payment methods</li>
           <li>• Change password and security settings</li>
         </ul>
       </Card>

@@ -751,10 +751,10 @@ Then update `restaurantService.ts:updateOrderStatus` to call this RPC instead of
 - [ ] HSTS header present
 - [ ] X-Frame-Options: DENY present
 - [ ] Forgot-password email arrives
-- [ ] Trial expiry trigger disables accounts after 14 days
-- [ ] Two concurrent order inserts don't share an order number
-- [ ] Restaurant cannot update another restaurant's orders
-- [ ] Order status transitions reject illegal moves (e.g., completed → pending)
+- [x] Trial expiry trigger disables accounts after 14 days
+- [x] Two concurrent order inserts don't share an order number
+- [x] Restaurant cannot update another restaurant's orders
+- [x] Order status transitions reject illegal moves (e.g., completed → pending)
 
 ---
 

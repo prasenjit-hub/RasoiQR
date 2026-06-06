@@ -36,12 +36,27 @@ export const generateOrderNumber = (): string => {
  * Generate temporary password
  */
 export const generateTempPassword = (): string => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let password = "";
-  for (let i = 0; i < 8; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  const uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lowers = "abcdefghjkmnpqrstuvwxyz";
+  const numbers = "23456789";
+  const specials = "!@#$%^&*";
+  
+  // Ensure at least one of each type
+  let password = 
+    uppers.charAt(Math.floor(Math.random() * uppers.length)) +
+    lowers.charAt(Math.floor(Math.random() * lowers.length)) +
+    numbers.charAt(Math.floor(Math.random() * numbers.length)) +
+    specials.charAt(Math.floor(Math.random() * specials.length));
+
+  const allChars = uppers + lowers + numbers + specials;
+  
+  // Fill the rest to make it 12 characters
+  for (let i = password.length; i < 12; i++) {
+    password += allChars.charAt(Math.floor(Math.random() * allChars.length));
   }
-  return password;
+  
+  // Shuffle the password
+  return password.split('').sort(() => 0.5 - Math.random()).join('');
 };
 
 /**
@@ -49,8 +64,8 @@ export const generateTempPassword = (): string => {
  */
 export const calculateOrderTotals = (items: any[]) => {
   const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
-  const tax = subtotal * APP_CONFIG.taxRate;
-  const total = subtotal + tax;
+  const tax = 0;
+  const total = subtotal;
 
   return { subtotal, tax, total };
 };

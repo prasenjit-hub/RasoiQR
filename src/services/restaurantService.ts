@@ -57,17 +57,22 @@ export const updateOrderStatus = async (
     transactionId?: string;
   }
 ) => {
-  const updateData: Record<string, unknown> = { status };
-
   if (paymentData) {
-    updateData.payment_method = paymentData.paymentMethod;
-    updateData.payment_transaction_id = paymentData.transactionId;
+    const { error: paymentError } = await supabase
+      .from("orders")
+      .update({
+        payment_method: paymentData.paymentMethod,
+        payment_transaction_id: paymentData.transactionId,
+      })
+      .eq("id", orderId);
+      
+    if (paymentError) return false;
   }
 
-  const { error } = await supabase
-    .from("orders")
-    .update(updateData)
-    .eq("id", orderId);
+  const { error } = await supabase.rpc("transition_order_status", {
+    p_order_id: orderId,
+    p_new_status: status,
+  });
 
   return !error;
 };

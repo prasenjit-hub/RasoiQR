@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   image_url TEXT,
   is_available BOOLEAN NOT NULL DEFAULT TRUE,
   is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+  sales_count INTEGER NOT NULL DEFAULT 0,
   sizes JSONB DEFAULT '[]'::jsonb,
   addons JSONB DEFAULT '[]'::jsonb,
   tags TEXT[] DEFAULT '{}',
@@ -242,6 +243,29 @@ DROP TRIGGER IF EXISTS set_order_number ON orders;
 CREATE TRIGGER set_order_number BEFORE INSERT ON orders FOR EACH ROW EXECUTE FUNCTION generate_order_number();
 
 -- =====================================================
+-- TRIAL EXPIRY TRIGGER
+-- =====================================================
+CREATE OR REPLACE FUNCTION enforce_trial_expiry()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.status != 'blocked'
+     AND NEW.trial_ends_at IS NOT NULL
+     AND NEW.trial_ends_at < NOW()
+     AND NEW.subscription_plan = 'free_trial' THEN
+    
+    NEW.status := 'blocked';
+    NEW.is_active := FALSE;
+    NEW.block_reason := 'Trial expired';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_trial_expiry ON restaurants;
+CREATE TRIGGER trg_trial_expiry BEFORE INSERT OR UPDATE ON restaurants
+  FOR EACH ROW EXECUTE FUNCTION enforce_trial_expiry();
+
+-- =====================================================
 -- RPC FUNCTIONS (Bypass RLS for authentication)
 -- =====================================================
 
@@ -333,10 +357,13 @@ DECLARE
 BEGIN
   INSERT INTO restaurants (
     registration_request_id, name, slug, owner_name, phone, email,
-    city, address, subscription_plan, status, is_active
+    city, address, subscription_plan, status, is_active, trial_ends_at
   ) VALUES (
     p_request_id, p_restaurant_name, p_slug, p_owner_name, p_phone, p_email,
-    p_city, p_address, p_subscription_plan, 'active', TRUE
+    p_city, p_address, p_subscription_plan,
+    CASE WHEN p_subscription_plan = 'free_trial' THEN 'trial' ELSE 'active' END,
+    TRUE,
+    CASE WHEN p_subscription_plan = 'free_trial' THEN NOW() + INTERVAL '14 days' ELSE NULL END
   )
   RETURNING id INTO v_restaurant_id;
 
@@ -434,6 +461,7 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public can view available menu items" ON menu_items FOR SELECT USING (is_available = TRUE);
 CREATE POLICY "Public can view active restaurants" ON restaurants FOR SELECT USING (TRUE);
 CREATE POLICY "Public can create orders" ON orders FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "Public can view orders" ON orders FOR SELECT USING (TRUE);
 
 -- Restaurant policies (owners manage their data)
 CREATE POLICY "Restaurant owners can view their restaurant" ON restaurants FOR SELECT USING (auth.uid()::text IN (SELECT id::text FROM users WHERE restaurant_id = restaurants.id));
@@ -545,7 +573,7 @@ LANGUAGE sql STABLE SECURITY DEFINER AS $$
   SELECT r.*
   FROM public.users u
   JOIN public.restaurants r ON r.id = u.restaurant_id
-  WHERE u.id = auth.uid() AND r.is_active = TRUE;
+  WHERE u.id = auth.uid();
 $$;
 GRANT EXECUTE ON FUNCTION get_my_restaurant_profile() TO authenticated;
 
@@ -580,8 +608,14 @@ LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_restaurant_id UUID; v_user_id UUID;
 BEGIN
   PERFORM assert_admin();
-  INSERT INTO restaurants (registration_request_id, name, slug, owner_name, phone, email, city, address, subscription_plan, status, is_active)
-  VALUES (p_request_id, p_restaurant_name, p_slug, p_owner_name, p_phone, p_email, p_city, p_address, p_subscription_plan, 'active', TRUE)
+  INSERT INTO restaurants (registration_request_id, name, slug, owner_name, phone, email, city, address, subscription_plan, status, is_active, trial_ends_at)
+  VALUES (
+    p_request_id, p_restaurant_name, p_slug, p_owner_name, p_phone, p_email, 
+    p_city, p_address, p_subscription_plan,
+    CASE WHEN p_subscription_plan = 'free_trial' THEN 'trial' ELSE 'active' END, 
+    TRUE,
+    CASE WHEN p_subscription_plan = 'free_trial' THEN NOW() + INTERVAL '14 days' ELSE NULL END
+  )
   RETURNING id INTO v_restaurant_id;
   INSERT INTO users (id, restaurant_id, email, password_hash, temp_password, role)
   VALUES (COALESCE(p_auth_user_id, uuid_generate_v4()), v_restaurant_id, p_email, p_password_hash, TRUE, 'owner')
@@ -604,6 +638,22 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_toggle_restaurant_status TO authenticated;
+
+CREATE OR REPLACE FUNCTION admin_update_subscription(
+  p_restaurant_id UUID, p_subscription_plan TEXT, p_status TEXT DEFAULT 'active'
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM assert_admin();
+  UPDATE restaurants
+  SET subscription_plan = p_subscription_plan,
+      status = p_status,
+      is_active = (p_status = 'active'),
+      block_reason = CASE WHEN p_status = 'active' THEN NULL ELSE block_reason END
+  WHERE id = p_restaurant_id;
+  RETURN TRUE;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION admin_update_subscription TO authenticated;
 
 CREATE OR REPLACE FUNCTION admin_reject_request(
   p_request_id UUID, p_rejection_reason TEXT
@@ -649,6 +699,9 @@ BEGIN
     IF v_qty < 1 OR v_qty > 20 THEN RAISE EXCEPTION 'Invalid quantity'; END IF;
     SELECT * INTO v_menu_item FROM menu_items WHERE id = (v_item->>'menu_item_id')::UUID AND restaurant_id = p_restaurant_id AND is_available = TRUE;
     IF NOT FOUND THEN RAISE EXCEPTION 'Menu item % not found', v_item->>'menu_item_id'; END IF;
+    
+    UPDATE menu_items SET sales_count = sales_count + v_qty WHERE id = v_menu_item.id;
+
     v_size_price := v_menu_item.base_price;
     IF v_item ? 'selected_size' AND (v_item->'selected_size') ? 'name' THEN
       v_size := v_item->'selected_size';
@@ -666,7 +719,7 @@ BEGIN
     v_line_total := v_unit_price * v_qty; v_subtotal := v_subtotal + v_line_total;
     v_normalized_items := v_normalized_items || jsonb_build_object('menu_item_id', v_menu_item.id, 'name', v_menu_item.name, 'quantity', v_qty, 'base_price', v_size_price, 'selected_size', v_item->'selected_size', 'selected_addons', v_item->'selected_addons', 'item_total', v_unit_price);
   END LOOP;
-  v_tax := ROUND(v_subtotal * 0.05, 2); v_total := v_subtotal + v_tax;
+  v_tax := 0; v_total := v_subtotal;
   INSERT INTO orders (restaurant_id, order_type, table_number, customer_name, customer_phone, customer_notes, items, subtotal, tax, total, status, payment_status)
   VALUES (p_restaurant_id, p_order_type, p_table_number, p_customer_name, p_customer_phone, p_customer_notes, v_normalized_items, v_subtotal, v_tax, v_total, 'pending', 'pending')
   -- Qualify with table name to disambiguate from RETURNS TABLE output parameter (migration 011 fix)
@@ -675,6 +728,52 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION customer_create_order TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION transition_order_status(
+  p_order_id UUID,
+  p_new_status TEXT
+)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE
+  v_current TEXT;
+  v_restaurant_id UUID;
+  v_order_type TEXT;
+BEGIN
+  -- Ensure the caller owns this restaurant
+  SELECT o.status, o.restaurant_id, o.order_type
+    INTO v_current, v_restaurant_id, v_order_type
+  FROM orders o
+  WHERE o.id = p_order_id
+    AND o.restaurant_id IN (
+      SELECT restaurant_id FROM users WHERE id = auth.uid()
+    );
+    
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Order not found or access denied';
+  END IF;
+
+  -- Allow only forward transitions + reject/cancel from early states
+  IF NOT (
+    (v_current = p_new_status) OR -- Allow no-op
+    (v_order_type IN ('qr', 'table') AND (
+      (v_current = 'pending'   AND p_new_status IN ('accepted', 'rejected', 'cancelled')) OR
+      (v_current = 'accepted'  AND p_new_status IN ('completed', 'cancelled'))
+    )) OR
+    (v_order_type IN ('counter', 'phone') AND (
+      (v_current = 'pending'   AND p_new_status IN ('accepted', 'rejected', 'cancelled')) OR
+      (v_current = 'accepted'  AND p_new_status IN ('ready', 'cancelled')) OR
+      (v_current = 'ready'     AND p_new_status IN ('completed', 'cancelled'))
+    ))
+  ) THEN
+    RAISE EXCEPTION 'Invalid status transition: % -> % for order type %', v_current, p_new_status, v_order_type;
+  END IF;
+
+  UPDATE orders SET status = p_new_status WHERE id = p_order_id;
+  RETURN TRUE;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION transition_order_status TO authenticated;
+
 CREATE OR REPLACE FUNCTION submit_registration_request(
   p_restaurant_name TEXT, p_owner_name TEXT, p_phone TEXT, p_email TEXT, p_city TEXT,
   p_address TEXT DEFAULT NULL, p_restaurant_type TEXT DEFAULT NULL,

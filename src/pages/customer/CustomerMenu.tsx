@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   ShoppingCart,
   Plus,
@@ -16,8 +16,8 @@ import {
   Card,
   Button,
   Input,
-  Loading,
   Alert,
+  Skeleton,
 } from "../../components/ui";
 import {
   subscribeToMenuForCustomer,
@@ -42,15 +42,23 @@ const CustomerMenu: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  
-  // Custom Toggles for Veg / Non-Veg
-  const [vegOnly, setVegOnly] = useState(false);
-  const [nonVegOnly, setNonVegOnly] = useState(false);
 
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [showItemModal, setShowItemModal] = useState(false);
+
+  const navigate = useNavigate();
+
+  // Check for recent orders in this restaurant
+  const [recentOrderIds, setRecentOrderIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(`recent_orders_${slug}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Load restaurant and menu
   useEffect(() => {
@@ -84,17 +92,6 @@ const CustomerMenu: React.FC = () => {
     setRestaurant(data[0]);
   };
 
-  // Helper to dynamically detect if an item is vegetarian
-  const isItemVeg = (item: MenuItem): boolean => {
-    const text = (`${item.name} ${item.category || ""} ${item.description || ""}`).toLowerCase();
-    const nonVegKeywords = [
-      "chicken", "egg", "fish", "mutton", "beef", "pork", "meat", "prawn", 
-      "non-veg", "non veg", "kebab", "tikka", "wings", "pepperoni", "bacon", 
-      "salame", "salami"
-    ];
-    return !nonVegKeywords.some(keyword => text.includes(keyword));
-  };
-
   // Helper to dynamically match icons/emojis with categories
   const getCategoryEmoji = (category: string | undefined): string => {
     const cat = (category || "").toLowerCase();
@@ -125,12 +122,12 @@ const CustomerMenu: React.FC = () => {
     const matchesCategory =
       categoryFilter === "all" || item.category === categoryFilter;
 
-    const itemIsVeg = isItemVeg(item);
-
-    if (vegOnly && !itemIsVeg) return false;
-    if (nonVegOnly && itemIsVeg) return false;
-
     return matchesSearch && matchesCategory && item.is_available;
+  }).sort((a, b) => {
+    if (categoryFilter === "all") {
+      return (b.sales_count || 0) - (a.sales_count || 0);
+    }
+    return 0;
   });
 
   const addToCart = (
@@ -198,7 +195,49 @@ const CustomerMenu: React.FC = () => {
   };
 
   if (loading) {
-    return <Loading text="Loading divine flavors..." />;
+    return (
+      <div className="min-h-screen bg-gray-50/50 pb-28">
+        <Skeleton className="h-48 md:h-64 w-full rounded-none" />
+        <div className="max-w-xl mx-auto px-4 -mt-20 relative z-20">
+          <Card className="p-5 shadow-sm rounded-3xl">
+            <div className="flex items-start gap-4">
+              <Skeleton className="w-16 h-16 rounded-2xl flex-shrink-0" />
+              <div className="flex-1">
+                <Skeleton className="h-6 w-48 mb-2" />
+                <Skeleton className="h-4 w-32 mb-3" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-6 w-20 rounded-lg" />
+                  <Skeleton className="h-6 w-20 rounded-lg" />
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+        <div className="max-w-xl mx-auto px-4 mt-6">
+          <Skeleton className="h-12 w-full rounded-2xl" />
+        </div>
+        <div className="max-w-xl mx-auto px-4 mt-5">
+          <div className="flex gap-2 pb-2 overflow-x-hidden">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-8 w-24 rounded-xl flex-shrink-0" />
+            ))}
+          </div>
+        </div>
+        <div className="max-w-xl mx-auto px-4 py-6 grid gap-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Card key={i} className="flex gap-4 p-4 rounded-2xl">
+              <div className="flex-1">
+                <Skeleton className="h-5 w-3/4 mb-2" />
+                <Skeleton className="h-4 w-full mb-1" />
+                <Skeleton className="h-4 w-2/3 mb-4" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              <Skeleton className="w-28 h-28 md:w-32 md:h-32 rounded-2xl flex-shrink-0" />
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (!restaurant) {
@@ -258,6 +297,16 @@ const CustomerMenu: React.FC = () => {
             Kitchen Active
           </span>
         </div>
+        {recentOrderIds.length > 0 && (
+          <div className="absolute top-4 right-4 z-10 flex gap-2">
+            <button
+              onClick={() => navigate(`/tracking/${slug}`)}
+              className="backdrop-blur-md bg-amber-500/90 hover:bg-amber-500 text-amber-50 text-xs px-4 py-1.5 rounded-full font-bold flex items-center gap-2 border border-amber-400/30 shadow-sm transition-colors"
+            >
+              📋 Track Orders
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 🏡 Restaurant Floating Premium Info Card */}
@@ -313,41 +362,6 @@ const CustomerMenu: React.FC = () => {
             className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-100 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/10 focus:border-amber-500 shadow-sm transition-all text-gray-800 placeholder-gray-400"
           />
         </div>
-
-        {/* Veg / Non-veg Slider Toggles */}
-        <div className="flex items-center gap-3 bg-white p-2.5 rounded-2xl border border-gray-50 shadow-sm">
-          <span className="text-xs font-extrabold text-gray-400 uppercase tracking-wider pl-1.5">Filters:</span>
-          
-          <button
-            onClick={() => {
-              setVegOnly(!vegOnly);
-              if (!vegOnly) setNonVegOnly(false);
-            }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-              vegOnly
-                ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm"
-                : "bg-gray-50/50 border-gray-100 text-gray-500 hover:bg-gray-50"
-            }`}
-          >
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-600 flex-shrink-0" />
-            Veg Only
-          </button>
-
-          <button
-            onClick={() => {
-              setNonVegOnly(!nonVegOnly);
-              if (!nonVegOnly) setVegOnly(false);
-            }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-              nonVegOnly
-                ? "bg-red-50 border-red-200 text-red-700 shadow-sm"
-                : "bg-gray-50/50 border-gray-100 text-gray-500 hover:bg-gray-50"
-            }`}
-          >
-            <span className="w-0.5 h-0.5 border-[5px] border-transparent border-b-[9px] border-b-red-600 mb-1 flex-shrink-0" />
-            Non-Veg Only
-          </button>
-        </div>
       </div>
 
       {/* 🏷️ Horizontal Category Scroll Slider */}
@@ -385,7 +399,6 @@ const CustomerMenu: React.FC = () => {
           <div className="space-y-4">
             {filteredItems.map((item) => {
               const quantity = getItemQuantity(item.id);
-              const isVeg = isItemVeg(item);
               const hasVariations =
                 (item.sizes && item.sizes.length > 0) ||
                 (item.addons && item.addons.length > 0);
@@ -398,24 +411,6 @@ const CustomerMenu: React.FC = () => {
                   {/* Left Column: Food Specs & Details */}
                   <div className="flex-1 min-w-0 flex flex-col justify-between">
                     <div>
-                      {/* Veg / Non-Veg Tag Dot */}
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <div className={`w-4 h-4 p-[2px] border ${isVeg ? "border-emerald-500" : "border-red-500"} flex items-center justify-center flex-shrink-0 rounded-sm bg-white`}>
-                          <span className={`w-2 h-2 rounded-full ${isVeg ? "bg-emerald-500 animate-pulse" : "bg-red-50"}`} style={!isVeg ? {
-                            borderWidth: "4px",
-                            borderStyle: "solid",
-                            borderColor: "transparent transparent rgb(239, 68, 68) transparent",
-                            borderRadius: "0px",
-                            marginBottom: "2px"
-                          } : {}} />
-                        </div>
-                        {isVeg ? (
-                          <span className="text-[9px] font-extrabold text-emerald-600 tracking-wide uppercase">Pure Veg</span>
-                        ) : (
-                          <span className="text-[9px] font-extrabold text-red-600 tracking-wide uppercase">Non Veg</span>
-                        )}
-                      </div>
-
                       {/* Name & Desc */}
                       <h3 className="font-extrabold text-base text-gray-800 tracking-tight leading-tight mb-1">
                         {item.name}
@@ -673,9 +668,27 @@ const CustomerMenu: React.FC = () => {
             cart={cart}
             restaurantId={restaurant.id}
             onClose={() => setShowCheckout(false)}
-            onSuccess={() => {
+            onSuccess={(orderId, action) => {
+              if (action !== "save_only") {
+                setShowCheckout(false);
+              }
               setCart([]);
-              setShowCheckout(false);
+              if (orderId) {
+                let currentOrders: string[] = [];
+                try {
+                  const stored = localStorage.getItem(`recent_orders_${slug}`);
+                  if (stored) currentOrders = JSON.parse(stored);
+                } catch (e) {}
+                
+                // Keep unique orders only
+                const updatedOrders = Array.from(new Set([...currentOrders, orderId]));
+                localStorage.setItem(`recent_orders_${slug}`, JSON.stringify(updatedOrders));
+                setRecentOrderIds(updatedOrders);
+                
+                if (action === "track") {
+                  navigate(`/tracking/${slug}`);
+                }
+              }
             }}
           />
         )}
@@ -859,7 +872,7 @@ interface CheckoutContentProps {
   cart: CartItem[];
   restaurantId: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (orderId?: string, action?: "track" | "more" | "save_only") => void;
 }
 
 const CheckoutContent: React.FC<CheckoutContentProps> = ({
@@ -877,13 +890,13 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(null);
 
   const subtotal = cart.reduce(
     (sum, item) => sum + item.itemTotal * item.quantity,
     0
   );
-  const tax = subtotal * 0.05; // 5% GST
-  const total = subtotal + tax;
+  const total = subtotal;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -924,11 +937,9 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
 
     if (!orderError && data && Array.isArray(data) && data.length > 0) {
       setOrderNumber(data[0].order_number);
+      setOrderId(data[0].order_id);
       setSuccess(true);
-      setTimeout(() => {
-        onSuccess();
-        resetForm();
-      }, 2500);
+      onSuccess(data[0].order_id, "save_only");
     } else {
       setError(orderError?.message || "Something went wrong. Let's try again.");
     }
@@ -942,6 +953,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
     setOrderType("table");
     setSuccess(false);
     setOrderNumber(null);
+    setOrderId(null);
   };
 
   if (success) {
@@ -975,9 +987,27 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           )}
         </div>
 
-        <Button onClick={onClose} fullWidth className="max-w-xs py-3.5 rounded-xl uppercase tracking-wider text-xs font-bold">
-          Awesome, Close Tab
-        </Button>
+        <div className="flex gap-3 w-full max-w-sm">
+          <Button 
+            onClick={() => {
+              if (orderId) onSuccess(orderId, "more");
+              resetForm();
+            }} 
+            variant="outline"
+            className="flex-1 py-3.5 rounded-xl uppercase tracking-wider text-xs font-bold border-gray-200 text-gray-700"
+          >
+            Order More
+          </Button>
+          <Button 
+            onClick={() => {
+              if (orderId) onSuccess(orderId, "track");
+              resetForm();
+            }} 
+            className="flex-1 py-3.5 rounded-xl uppercase tracking-wider text-xs font-bold bg-amber-500 hover:bg-amber-600 border-amber-500"
+          >
+            Track Order
+          </Button>
+        </div>
       </div>
     );
   }
@@ -1083,10 +1113,6 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           <div className="flex justify-between">
             <span>Subtotal</span>
             <span className="text-neutral-800">{formatCurrency(subtotal)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Tax GST (5%)</span>
-            <span className="text-neutral-800">{formatCurrency(tax)}</span>
           </div>
           <div className="flex justify-between text-neutral-800 font-black pt-2 border-t border-neutral-100 text-sm">
             <span>Grand Total</span>

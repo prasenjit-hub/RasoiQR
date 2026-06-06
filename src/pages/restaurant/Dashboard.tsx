@@ -8,7 +8,6 @@ import {
   Navigate,
 } from "react-router-dom";
 import {
-  Store as StoreIcon,
   LogOut,
   LayoutDashboard,
   ShoppingBag,
@@ -16,7 +15,7 @@ import {
   FileText,
   Settings,
 } from "lucide-react";
-import { Loading } from "../../components/ui";
+import { Loading, IconLogo } from "../../components/ui";
 import { useAuth } from "../../contexts/AuthContext";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
@@ -24,6 +23,8 @@ import Menu from "./Menu";
 import Reports from "./Reports";
 import RestaurantSettings from "./RestaurantSettings";
 import NotAuthorized from "../admin/NotAuthorized";
+
+import BlockedAccount from "./BlockedAccount";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -38,6 +39,9 @@ const RestaurantDashboard: React.FC = () => {
   }
   if (!restaurant) {
     return <NotAuthorized />;
+  }
+  if (!restaurant.is_active || restaurant.status === "blocked") {
+    return <BlockedAccount />;
   }
 
   const handleLogout = async () => {
@@ -60,7 +64,7 @@ const RestaurantDashboard: React.FC = () => {
         <div className="container-custom">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-3">
-              <StoreIcon className="w-8 h-8 text-accent" />
+              <IconLogo className="w-8 h-8 text-accent" />
               <div>
                 <h1 className="text-lg font-bold text-text">
                   {restaurant.name}

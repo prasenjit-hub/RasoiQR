@@ -59,7 +59,7 @@ const AdminLogin: React.FC = () => {
     }
 
     setLoading(true);
-    const { error: resetError } = await resetPassword(forgotEmail);
+    const { error: resetError } = await resetPassword(forgotEmail, "/admin/reset-password");
     setLoading(false);
 
     if (resetError) {

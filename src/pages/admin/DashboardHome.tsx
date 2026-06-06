@@ -7,7 +7,7 @@ import {
   TrendingUp,
   AlertCircle,
 } from "lucide-react";
-import { Card, Loading } from "../../components/ui";
+import { Card, Skeleton } from "../../components/ui";
 import { getPlatformStats } from "../../services/adminService";
 import { formatCurrency } from "../../utils/helpers";
 import { Link } from "react-router-dom";
@@ -33,7 +33,39 @@ const DashboardHome: React.FC = () => {
   };
 
   if (loading) {
-    return <Loading />;
+    return (
+      <div className="space-y-8">
+        <div>
+          <Skeleton className="h-8 w-64 mb-2" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <Skeleton className="h-4 w-32 mb-1" />
+                  <Skeleton className="h-8 w-16" />
+                </div>
+                <Skeleton className="w-12 h-12 rounded-lg" />
+              </div>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <Skeleton className="h-6 w-32 mb-4" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-4 border border-border rounded-lg">
+                <Skeleton className="w-8 h-8 mb-2" />
+                <Skeleton className="h-5 w-32 mb-1" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   return (

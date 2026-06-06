@@ -7,7 +7,7 @@ import {
   Calendar,
   Download,
 } from "lucide-react";
-import { Card, Button, Loading } from "../../components/ui";
+import { Card, Button, Skeleton } from "../../components/ui";
 import {
   LineChart,
   Line,
@@ -159,7 +159,41 @@ const Reports: React.FC = () => {
   };
 
   if (loading) {
-    return <Loading text="Loading reports..." />;
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="h-10 w-32 rounded-md" />
+            <Skeleton className="h-10 w-24 rounded-md" />
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <div className="flex items-center justify-between mb-3">
+                <Skeleton className="w-12 h-12 rounded-lg" />
+              </div>
+              <Skeleton className="h-8 w-24 mb-1" />
+              <Skeleton className="h-4 w-32" />
+            </Card>
+          ))}
+        </div>
+        <div className="grid lg:grid-cols-2 gap-6">
+          <Card>
+            <Skeleton className="h-6 w-32 mb-4" />
+            <Skeleton className="h-[300px] w-full" />
+          </Card>
+          <Card>
+            <Skeleton className="h-6 w-48 mb-4" />
+            <Skeleton className="h-[300px] w-full" />
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   if (!reportData) {

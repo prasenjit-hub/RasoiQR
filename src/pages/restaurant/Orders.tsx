@@ -7,6 +7,8 @@ import {
   Phone,
   User,
   MessageSquare,
+  ChefHat,
+  ShoppingBag,
 } from "lucide-react";
 import {
   Card,
@@ -14,7 +16,7 @@ import {
   Badge,
   Modal,
   Textarea,
-  Loading,
+  Skeleton,
   Alert,
 } from "../../components/ui";
 import {
@@ -87,11 +89,13 @@ const Orders: React.FC = () => {
     const variants: Record<string, any> = {
       pending: "warning",
       accepted: "accent-secondary",
+      preparing: "warning",
+      ready: "success",
       completed: "success",
       cancelled: "neutral",
       rejected: "error",
     };
-    return <Badge variant={variants[status] || "neutral"}>{status}</Badge>;
+    return <Badge className="capitalize" variant={variants[status] || "neutral"}>{status === 'ready' ? 'parcel' : status}</Badge>;
   };
 
   const getStatusIcon = (status: string) => {
@@ -100,6 +104,10 @@ const Orders: React.FC = () => {
         return <Clock className="w-5 h-5 text-warning" />;
       case "accepted":
         return <Package className="w-5 h-5 text-accent-secondary" />;
+      case "preparing":
+        return <ChefHat className="w-5 h-5 text-warning" />;
+      case "ready":
+        return <ShoppingBag className="w-5 h-5 text-success" />;
       case "completed":
         return <CheckCircle className="w-5 h-5 text-success" />;
       case "cancelled":
@@ -111,7 +119,48 @@ const Orders: React.FC = () => {
   };
 
   if (loading) {
-    return <Loading text="Loading orders..." />;
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-32 mb-2" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-10 w-24 rounded-lg" />
+          ))}
+        </div>
+        <div className="grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 space-y-3">
+                <div className="flex justify-between">
+                  <div className="flex gap-3">
+                    <Skeleton className="w-5 h-5 rounded-full" />
+                    <div>
+                      <Skeleton className="h-6 w-32 mb-1" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2 mt-4">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              </div>
+              <div className="flex lg:flex-col gap-2 lg:min-w-[160px]">
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const pendingCount = orders.filter((o) => o.status === "pending").length;
@@ -133,28 +182,25 @@ const Orders: React.FC = () => {
         )}
       </div>
 
-      {/* Real-time indicator */}
-      <div className="flex items-center space-x-2 text-sm text-success">
-        <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-        <span>Live order updates • Sound notifications enabled</span>
-      </div>
-
       {/* Status Filter */}
-      <div className="flex flex-wrap gap-2">
-        {["pending", "accepted", "completed", "cancelled"].map((status) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              statusFilter === status
-                ? "bg-accent text-white"
-                : "bg-bg-subtle text-text-secondary hover:bg-border"
-            }`}
-          >
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-            {status === "pending" && ` (${pendingCount})`}
-          </button>
-        ))}
+      <div className="flex overflow-x-auto gap-2 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {["pending", "accepted", "ready", "completed", "cancelled"].map((status) => {
+          const count = orders.filter((o) => o.status === status).length;
+          return (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
+                statusFilter === status
+                  ? "bg-accent text-white"
+                  : "bg-bg-subtle text-text-secondary hover:bg-border"
+              }`}
+            >
+              {status === 'ready' ? 'Parcel' : status.charAt(0).toUpperCase() + status.slice(1)}
+              {["completed", "cancelled"].includes(status) ? null : ` (${count})`}
+            </button>
+          );
+        })}
       </div>
 
       {/* Orders List */}
@@ -201,9 +247,9 @@ const Orders: React.FC = () => {
                     <div className="flex items-center space-x-2 text-text-secondary">
                       <Package className="w-4 h-4" />
                       <span>
-                        {order.order_type} •{" "}
+                        {order.order_type === "counter" ? "Takeaway / Parcel" : order.order_type === "phone" ? "Phone" : order.order_type === "qr" ? "QR Code" : "Table"} •{" "}
                         {order.table_number && `Table ${order.table_number}`}
-                        {!order.table_number && "Takeaway"}
+                        {!order.table_number && "Counter"}
                       </span>
                     </div>
                     {order.customer_phone && (
@@ -285,8 +331,47 @@ const Orders: React.FC = () => {
 
                   {order.status === "accepted" && (
                     <>
+                      {["qr", "table"].includes(order.order_type) ? (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          fullWidth
+                          onClick={() =>
+                            handleStatusUpdate(order.id, "completed")
+                          }
+                        >
+                          Mark Complete
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          fullWidth
+                          onClick={() =>
+                            handleStatusUpdate(order.id, "ready")
+                          }
+                        >
+                          Mark as Parcel
+                        </Button>
+                      )}
                       <Button
-                        variant="secondary"
+                        variant="outline"
+                        size="sm"
+                        fullWidth
+                        onClick={() => {
+                          setSelectedOrder(order);
+                          setShowRejectModal(true);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+
+                  {order.status === "ready" && (
+                    <>
+                      <Button
+                        variant="primary"
                         size="sm"
                         fullWidth
                         onClick={() =>
@@ -395,7 +480,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             )}
             <p className="text-text-secondary">
               <strong className="text-text">Order Type:</strong>{" "}
-              {order.order_type}
+              {order.order_type === "counter" ? "Takeaway / Parcel" : order.order_type === "phone" ? "Takeaway / Parcel (Phone)" : order.order_type === "qr" ? "QR Code (Dine In)" : "Dine In"}
             </p>
             {order.table_number && (
               <p className="text-text-secondary">
@@ -415,23 +500,26 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 key={index}
                 className="flex items-start justify-between p-3 bg-bg-subtle rounded-lg"
               >
-                <div className="flex-1">
-                  <p className="font-medium text-text">
-                    {item.quantity}x {item.name}
-                  </p>
-                  {item.size && (
-                    <p className="text-sm text-text-secondary">
-                      Size: {item.size}
-                    </p>
-                  )}
-                  {item.addons && item.addons.length > 0 && (
-                    <p className="text-sm text-text-secondary">
-                      Add-ons: {item.addons.join(", ")}
-                    </p>
-                  )}
+                <div className="flex gap-3">
+                  <div className="w-7 h-7 bg-bg flex items-center justify-center rounded-lg border border-border flex-shrink-0 text-xs font-black text-text">
+                    {item.quantity}x
+                  </div>
+                  <div>
+                    <p className="font-bold text-text text-sm">{item.name}</p>
+                    {item.selected_size?.name && (
+                      <p className="text-[10px] font-medium text-text-secondary mt-0.5">
+                        Size: {item.selected_size.name}
+                      </p>
+                    )}
+                    {item.selected_addons && item.selected_addons.length > 0 && (
+                      <p className="text-[10px] font-medium text-text-secondary mt-0.5">
+                        Add-ons: {item.selected_addons.map((a: any) => a.name).join(", ")}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <p className="font-semibold text-text">
-                  {formatCurrency(item.item_total || item.subtotal || 0)}
+                  {formatCurrency((item.item_total || item.base_price || 0) * (item.quantity || 1))}
                 </p>
               </div>
             ))}
@@ -443,10 +531,6 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           <div className="flex justify-between text-text-secondary">
             <span>Subtotal</span>
             <span>{formatCurrency(order.subtotal)}</span>
-          </div>
-          <div className="flex justify-between text-text-secondary">
-            <span>Tax</span>
-            <span>{formatCurrency(order.tax)}</span>
           </div>
           {order.discount && order.discount > 0 && (
             <div className="flex justify-between text-success">

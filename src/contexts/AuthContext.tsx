@@ -60,7 +60,7 @@ interface AuthContextValue {
   ready: boolean;
   signIn: (email: string, password: string) => Promise<SignInResult>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: string | null }>;
+  resetPassword: (email: string, redirectToPath: string) => Promise<{ error: string | null }>;
   /** Manually re-run the auth check. Useful for tab-focus refresh. */
   refresh: () => Promise<void>;
 }
@@ -346,11 +346,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     safeSetState(clearAll);
   }
 
-  async function resetPassword(email: string) {
+  async function resetPassword(email: string, redirectToPath: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.toLowerCase().trim(),
       {
-        redirectTo: `${window.location.origin}/admin/reset-password`,
+        redirectTo: `${window.location.origin}${redirectToPath}`,
       }
     );
     return { error: error?.message ?? null };

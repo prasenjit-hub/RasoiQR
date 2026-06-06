@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Store, ArrowLeft, CheckCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle } from "lucide-react";
 import {
   Button,
   Input,
@@ -8,6 +8,7 @@ import {
   Textarea,
   Alert,
   Card,
+  IconLogo,
 } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
@@ -210,7 +211,7 @@ const RegisterPage: React.FC = () => {
             Back to Home
           </Link>
           <div className="flex items-center space-x-3 mb-4">
-            <Store className="w-10 h-10 text-accent" />
+            <IconLogo className="w-10 h-10 text-accent" />
             <div>
               <h1 className="text-3xl font-bold text-text">
                 Register Your Restaurant

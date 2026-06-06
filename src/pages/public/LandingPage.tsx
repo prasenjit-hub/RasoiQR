@@ -7,15 +7,15 @@ import {
   TrendingUp,
   Clock,
   Check,
-  Store,
   Menu as MenuIcon,
   X,
 } from "lucide-react";
-import { Button } from "../../components/ui";
+import { Button, IconLogo } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 
 const LandingPage: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [isYearly, setIsYearly] = React.useState(false);
 
   return (
     <div className="min-h-screen bg-bg">
@@ -24,7 +24,7 @@ const LandingPage: React.FC = () => {
         <div className="container-custom">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="flex items-center space-x-2">
-              <Store className="w-8 h-8 text-accent" />
+              <IconLogo className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-text">
                 {APP_CONFIG.appName}
               </span>
@@ -226,9 +226,21 @@ const LandingPage: React.FC = () => {
             <h2 className="text-3xl md:text-4xl font-bold text-text mb-4">
               Simple, transparent pricing
             </h2>
-            <p className="text-lg text-text-secondary">
+            <p className="text-lg text-text-secondary mb-8">
               Start with a 14-day free trial. No credit card required.
             </p>
+            <div className="flex items-center justify-center space-x-4">
+              <span className={`text-sm ${!isYearly ? 'font-bold text-text' : 'text-text-secondary'}`}>Monthly</span>
+              <button 
+                onClick={() => setIsYearly(!isYearly)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isYearly ? 'bg-accent' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isYearly ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+              <span className={`text-sm ${isYearly ? 'font-bold text-text' : 'text-text-secondary'}`}>
+                Yearly <span className="text-success text-xs font-semibold ml-1">(Save 16%)</span>
+              </span>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
@@ -251,11 +263,11 @@ const LandingPage: React.FC = () => {
                   <div className="mb-4">
                     <span className="text-4xl font-bold text-text">
                       {APP_CONFIG.defaultCurrency}
-                      {plan.price}
+                      {plan.price === 0 ? 0 : (isYearly ? plan.priceYearly : plan.price)}
                     </span>
                     {plan.price > 0 && (
                       <span className="text-text-secondary">
-                        /{plan.duration}
+                        /{isYearly ? "year" : "month"}
                       </span>
                     )}
                   </div>
@@ -361,7 +373,7 @@ const LandingPage: React.FC = () => {
           <div className="grid md:grid-cols-4 gap-8">
             <div>
               <div className="flex items-center space-x-2 mb-4">
-                <Store className="w-6 h-6 text-accent" />
+                <IconLogo className="w-6 h-6 text-accent" />
                 <span className="text-lg font-bold text-text">
                   {APP_CONFIG.appName}
                 </span>
@@ -432,20 +444,20 @@ const LandingPage: React.FC = () => {
               <h4 className="font-semibold text-text mb-4">Legal</h4>
               <ul className="space-y-2">
                 <li>
-                  <a
-                    href="#"
+                  <Link
+                    to="/privacy-policy"
                     className="text-sm text-text-secondary hover:text-text"
                   >
                     Privacy Policy
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a
-                    href="#"
+                  <Link
+                    to="/terms-of-service"
                     className="text-sm text-text-secondary hover:text-text"
                   >
                     Terms of Service
-                  </a>
+                  </Link>
                 </li>
               </ul>
             </div>

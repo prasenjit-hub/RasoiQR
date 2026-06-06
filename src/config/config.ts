@@ -11,7 +11,6 @@ export const SUPABASE_ANON_KEY =
 export const APP_CONFIG = {
   appName: "RasoiQR",
   defaultCurrency: "₹",
-  taxRate: 0.05, // 5% GST
   orderPrefix: "ORD",
 
   // Subscription plans
@@ -19,6 +18,7 @@ export const APP_CONFIG = {
     free_trial: {
       name: "Free Trial",
       price: 0,
+      priceYearly: 0,
       duration: "14 days",
       features: [
         "Up to 50 orders/month",
@@ -29,7 +29,8 @@ export const APP_CONFIG = {
     },
     starter: {
       name: "Starter",
-      price: 299,
+      price: 499,
+      priceYearly: 4999,
       duration: "per month",
       features: [
         "Unlimited orders",
@@ -41,7 +42,8 @@ export const APP_CONFIG = {
     },
     pro: {
       name: "Pro",
-      price: 599,
+      price: 999,
+      priceYearly: 9999,
       duration: "per month",
       features: [
         "Everything in Starter",

@@ -1,6 +1,6 @@
 import React from "react";
 import { ShoppingBag, UtensilsCrossed, DollarSign, Clock } from "lucide-react";
-import { Card, Badge, Loading } from "../../components/ui";
+import { Card, Badge, Skeleton } from "../../components/ui";
 import { getRestaurantStats } from "../../services/restaurantService";
 import { formatCurrency } from "../../utils/helpers";
 import { useAuth } from "../../contexts/AuthContext";
@@ -27,7 +27,44 @@ const RestaurantHome: React.FC = () => {
   }, [restaurant]);
 
   if (loading) {
-    return <Loading text="Loading dashboard..." />;
+    return (
+      <div className="space-y-6">
+        <div>
+          <Skeleton className="h-8 w-64 mb-2" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="hover:shadow-md transition-shadow">
+              <Skeleton className="w-10 h-10 rounded-lg mb-3" />
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-8 w-16" />
+            </Card>
+          ))}
+        </div>
+        <div className="grid lg:grid-cols-2 gap-6">
+          <Card>
+            <Skeleton className="h-6 w-32 mb-4" />
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <Skeleton className="h-6 w-40 mb-4" />
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex justify-between">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   const statCards = [

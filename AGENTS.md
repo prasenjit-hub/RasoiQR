@@ -117,17 +117,17 @@ database/
 
 | Phase | Status |
 |---|---|
-| Phase 0.1 — Rotate Supabase keys | ❌ Not done (old keys still in `.env`) |
+| Phase 0.1 — Rotate Supabase keys | ✅ Done |
 | Phase 0.2 — Remove hardcoded admin | ✅ Done |
 | Phase 1 — Database hardening | ✅ Done |
 | Phase 2 — Admin Supabase Auth | ✅ Done |
 | Phase 3 — Off localStorage | ✅ Done |
 | Phase 4 — Customer order flow | ✅ Done |
 | Phase 5 — Security headers + Vercel | ✅ Done |
-| Phase 6.1 — Stronger temp passwords | ❌ Not done |
-| Phase 6.2 — Forgot password flow | ❌ Not done |
-| Phase 6.3 — Trial expiry trigger | ❌ Not done |
-| Phase 6.4 — Order status state machine | ❌ Not done |
+| Phase 6.1 — Stronger temp passwords | ✅ Done |
+| Phase 6.2 — Forgot password flow | ✅ Done |
+| Phase 6.3 — Trial expiry trigger | ✅ Done |
+| Phase 6.4 — Order status state machine | ✅ Done |
 | Phase 7 — Full launch test | ❌ Not done |
 
 ## Smoke test as integration test

@@ -7,3 +7,6 @@ export { Modal } from "./Modal";
 export { Badge } from "./Badge";
 export { Loading } from "./Loading";
 export { Alert } from "./Alert";
+export { IconLogo } from "./IconLogo";
+export { ImageUpload } from "./ImageUpload";
+export { Skeleton } from "./Skeleton";

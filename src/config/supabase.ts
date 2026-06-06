@@ -43,6 +43,11 @@ export const supabase = createBrowserClient(finalUrl, finalAnonKey, {
     detectSessionInUrl: true,
     flowType: "pkce",
   },
+  cookieOptions: {
+    name: "sb",
+    sameSite: "none",
+    secure: true,
+  },
 });
 
 // Database types
@@ -106,6 +111,7 @@ export interface MenuItem {
   category?: string;
   image_url?: string;
   is_available: boolean;
+  sales_count?: number;
   sizes?: { name: string; price: number }[];
   addons?: { name: string; price: number }[];
   created_at: string;

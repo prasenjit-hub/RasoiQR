@@ -6,9 +6,10 @@ import {
   Input,
   Badge,
   Modal,
-  Loading,
+  Skeleton,
   Alert,
   Textarea,
+  ImageUpload,
 } from "../../components/ui";
 import {
   subscribeToMenuItems,
@@ -72,7 +73,41 @@ const Menu: React.FC = () => {
   };
 
   if (loading) {
-    return <Loading text="Loading menu..." />;
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <Skeleton className="h-10 w-32 rounded-lg" />
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Skeleton className="h-11 flex-1 rounded-lg" />
+          <Skeleton className="h-11 w-full sm:w-48 rounded-lg" />
+        </div>
+        <div className="grid gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="flex flex-col lg:flex-row gap-4">
+              <Skeleton className="w-full lg:w-32 h-48 lg:h-32 rounded-lg shrink-0" />
+              <div className="flex-1 space-y-3">
+                <Skeleton className="h-6 w-48" />
+                <Skeleton className="h-4 w-full max-w-md" />
+                <div className="flex gap-4 mt-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 lg:min-w-[150px]">
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-9 w-full rounded-md" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -93,14 +128,6 @@ const Menu: React.FC = () => {
         </Button>
       </div>
 
-      {/* Real-time indicator */}
-      <div className="flex items-center space-x-2 text-sm text-success">
-        <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-        <span>
-          Live updates • Availability changes update customers in real-time
-        </span>
-      </div>
-
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1">
@@ -111,20 +138,25 @@ const Menu: React.FC = () => {
             icon={<Search className="w-5 h-5" />}
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setCategoryFilter(category || "all")}
-              className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                categoryFilter === category
-                  ? "bg-accent text-white"
-                  : "bg-white border border-border text-text-secondary hover:bg-bg-subtle"
-              }`}
-            >
-              {category === "all" ? "All Items" : category}
-            </button>
-          ))}
+        <div className="w-full sm:w-48 shrink-0">
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="w-full bg-white border border-border text-text rounded-lg px-4 py-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors cursor-pointer appearance-none"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+              backgroundPosition: `right 0.5rem center`,
+              backgroundRepeat: `no-repeat`,
+              backgroundSize: `1.5em 1.5em`,
+              paddingRight: `2.5rem`
+            }}
+          >
+            {categories.map((category) => (
+              <option key={category} value={category || "all"}>
+                {category === "all" ? "All Categories" : category}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -162,20 +194,21 @@ const Menu: React.FC = () => {
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="w-full lg:w-32 h-32 object-cover rounded-lg"
+                    className="w-full lg:w-32 h-48 lg:h-32 object-cover rounded-lg shrink-0"
                   />
                 )}
 
                 {/* Details */}
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-start justify-between">
+                <div className="flex-1 space-y-2 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                     <div>
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="text-lg font-bold text-text">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <h3 className="text-lg font-bold text-text break-words">
                           {item.name}
                         </h3>
                         <Badge
                           variant={item.is_available ? "success" : "neutral"}
+                          className="shrink-0"
                         >
                           {item.is_available ? "Available" : "Unavailable"}
                         </Badge>
@@ -189,12 +222,12 @@ const Menu: React.FC = () => {
                   </div>
 
                   {item.description && (
-                    <p className="text-text-secondary text-sm">
+                    <p className="text-text-secondary text-sm break-words">
                       {item.description}
                     </p>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                  <div className="flex flex-wrap items-center gap-4 text-sm mt-2">
                     <div>
                       <span className="text-text-secondary">Base Price: </span>
                       <span className="text-accent font-semibold text-lg">
@@ -223,37 +256,37 @@ const Menu: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex lg:flex-col gap-2 lg:min-w-[140px]">
+                <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 lg:min-w-[150px] mt-4 lg:mt-0">
                   <Button
                     size="sm"
                     variant={item.is_available ? "outline" : "secondary"}
                     icon={
                       item.is_available ? (
-                        <EyeOff className="w-4 h-4" />
+                        <EyeOff className="w-4 h-4 shrink-0" />
                       ) : (
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-4 h-4 shrink-0" />
                       )
                     }
                     onClick={() => handleToggleAvailability(item)}
-                    fullWidth
+                    className="flex-1 sm:flex-none"
                   >
-                    {item.is_available ? "Mark Unavailable" : "Mark Available"}
+                    <span className="truncate">{item.is_available ? "Mark Unavailable" : "Mark Available"}</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    icon={<Edit className="w-4 h-4" />}
+                    icon={<Edit className="w-4 h-4 shrink-0" />}
                     onClick={() => handleEdit(item)}
-                    fullWidth
+                    className="flex-1 sm:flex-none"
                   >
                     Edit
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    icon={<Trash2 className="w-4 h-4" />}
+                    icon={<Trash2 className="w-4 h-4 shrink-0" />}
                     onClick={() => handleDelete(item)}
-                    fullWidth
+                    className="flex-1 sm:flex-none"
                   >
                     Delete
                   </Button>
@@ -486,13 +519,10 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
           />
         </div>
 
-        <Input
-          label="Image URL (Optional)"
+        <ImageUpload
+          label="Item Image (Optional)"
           value={formData.image_url}
-          onChange={(e) =>
-            setFormData({ ...formData, image_url: e.target.value })
-          }
-          placeholder="https://example.com/image.jpg"
+          onChange={(url) => setFormData({ ...formData, image_url: url })}
         />
 
         {/* Sizes */}

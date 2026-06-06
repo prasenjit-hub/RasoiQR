@@ -221,6 +221,19 @@ export const toggleRestaurantStatus = async (
   return !error;
 };
 
+export const updateSubscriptionPlan = async (
+  restaurantId: string,
+  plan: string,
+  newStatus: string = "active"
+) => {
+  const { error } = await supabase.rpc("admin_update_subscription", {
+    p_restaurant_id: restaurantId,
+    p_subscription_plan: plan,
+    p_status: newStatus,
+  });
+  return !error;
+};
+
 // Get platform statistics
 export const getPlatformStats = async () => {
   try {

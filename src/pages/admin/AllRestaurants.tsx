@@ -10,6 +10,7 @@ import {
   MapPin,
   Calendar,
   Crown,
+  Edit2,
 } from "lucide-react";
 import {
   Card,
@@ -24,6 +25,7 @@ import {
 import {
   subscribeToRestaurants,
   toggleRestaurantStatus,
+  updateSubscriptionPlan,
 } from "../../services/adminService";
 import type { Restaurant } from "../../config/supabase";
 import { formatDateTime } from "../../utils/helpers";
@@ -41,6 +43,7 @@ const AllRestaurants: React.FC = () => {
     useState<Restaurant | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
 
   // Real-time subscription
   useEffect(() => {
@@ -84,6 +87,11 @@ const AllRestaurants: React.FC = () => {
   const handleToggleBlock = (restaurant: Restaurant) => {
     setSelectedRestaurant(restaurant);
     setShowBlockModal(true);
+  };
+
+  const handleEditPlan = (restaurant: Restaurant) => {
+    setSelectedRestaurant(restaurant);
+    setShowPlanModal(true);
   };
 
   const getStatusBadge = (status: string) => {
@@ -267,6 +275,15 @@ const AllRestaurants: React.FC = () => {
                     View
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                    icon={<Edit2 className="w-4 h-4" />}
+                    onClick={() => handleEditPlan(restaurant)}
+                  >
+                    Edit Plan
+                  </Button>
+                  <Button
                     variant={
                       restaurant.status === "blocked" ? "secondary" : "danger"
                     }
@@ -306,6 +323,16 @@ const AllRestaurants: React.FC = () => {
         restaurant={selectedRestaurant}
         onClose={() => {
           setShowBlockModal(false);
+          setSelectedRestaurant(null);
+        }}
+      />
+
+      {/* Plan Modal */}
+      <PlanModal
+        isOpen={showPlanModal}
+        restaurant={selectedRestaurant}
+        onClose={() => {
+          setShowPlanModal(false);
           setSelectedRestaurant(null);
         }}
       />
@@ -584,6 +611,92 @@ const InfoItem: React.FC<InfoItemProps> = ({
         <p className="text-text">{value}</p>
       )}
     </div>
+  );
+};
+
+// Plan Modal Component
+interface PlanModalProps {
+  isOpen: boolean;
+  restaurant: Restaurant | null;
+  onClose: () => void;
+}
+
+const PlanModal: React.FC<PlanModalProps> = ({
+  isOpen,
+  restaurant,
+  onClose,
+}) => {
+  const [loading, setLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>("free_trial");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (restaurant) {
+      setSelectedPlan(restaurant.subscription_plan || "free_trial");
+    }
+  }, [restaurant]);
+
+  const handleUpdate = async () => {
+    if (!restaurant) return;
+
+    setLoading(true);
+    // When manually upgrading a blocked/trial account, typical flow is to activate them
+    const newStatus = selectedPlan === "free_trial" ? "trial" : "active";
+    const success = await updateSubscriptionPlan(restaurant.id, selectedPlan, newStatus);
+    setLoading(false);
+
+    if (success) {
+      onClose();
+    } else {
+      setError("Failed to update subscription plan.");
+    }
+  };
+
+  if (!restaurant) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Edit Subscription Plan"
+      size="md"
+    >
+      <div className="space-y-4">
+        {error && (
+          <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
+            {error}
+          </div>
+        )}
+
+        <p className="text-text-secondary text-sm">
+          Change the billing plan for{" "}
+          <strong className="text-text">{restaurant.name}</strong>. If their
+          trial was expired or account suspended, selecting a paid plan will
+          automatically reactivate their account.
+        </p>
+
+        <div className="pt-2">
+          <Select
+            label="Subscription Plan"
+            value={selectedPlan}
+            onChange={(e) => setSelectedPlan(e.target.value)}
+            options={Object.entries(APP_CONFIG.plans).map(([key, plan]) => ({
+              value: key,
+              label: `${plan.name} ($${plan.price}/mo)`,
+            }))}
+          />
+        </div>
+
+        <div className="flex gap-3 pt-4">
+          <Button type="button" variant="outline" onClick={onClose} fullWidth>
+            Cancel
+          </Button>
+          <Button onClick={handleUpdate} loading={loading} fullWidth>
+            Save Changes
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
