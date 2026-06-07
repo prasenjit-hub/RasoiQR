@@ -218,23 +218,24 @@ DROP TRIGGER IF EXISTS update_admin_users_updated_at ON admin_users;
 CREATE TRIGGER update_admin_users_updated_at BEFORE UPDATE ON admin_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
--- AUTO-GENERATE ORDER NUMBERS
+-- AUTO-GENERATE ORDER NUMBERS (IST timezone — see migration 022)
 -- =====================================================
 CREATE OR REPLACE FUNCTION generate_order_number()
 RETURNS TRIGGER AS $$
 DECLARE
+  ist_now TIMESTAMPTZ := NOW() AT TIME ZONE 'Asia/Kolkata';
   today_date TEXT;
   order_count INTEGER;
 BEGIN
-  today_date := TO_CHAR(CURRENT_DATE, 'YYYYMMDD');
-  
+  today_date := TO_CHAR(ist_now::DATE, 'YYYYMMDD');
+
   SELECT COUNT(*) + 1 INTO order_count
   FROM orders
   WHERE restaurant_id = NEW.restaurant_id
-    AND DATE(created_at) = CURRENT_DATE;
-  
+    AND (created_at AT TIME ZONE 'Asia/Kolkata')::DATE = ist_now::DATE;
+
   NEW.order_number := today_date || '-' || LPAD(order_count::TEXT, 3, '0');
-  
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
