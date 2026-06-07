@@ -26,6 +26,7 @@ import {
 import type { MenuItem } from "../../config/supabase";
 import { formatCurrency, isValidPhone } from "../../utils/helpers";
 import { supabase } from "../../config/supabase";
+import { persistentStorage } from "../../utils/persistentStorage";
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -53,7 +54,7 @@ const CustomerMenu: React.FC = () => {
   // Check for recent orders in this restaurant
   const [recentOrderIds, setRecentOrderIds] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem(`recent_orders_${slug}`);
+      const stored = persistentStorage.getItem(`recent_orders_${slug}`);
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -676,13 +677,13 @@ const CustomerMenu: React.FC = () => {
               if (orderId) {
                 let currentOrders: string[] = [];
                 try {
-                  const stored = localStorage.getItem(`recent_orders_${slug}`);
+                  const stored = persistentStorage.getItem(`recent_orders_${slug}`);
                   if (stored) currentOrders = JSON.parse(stored);
                 } catch (e) {}
-                
+
                 // Keep unique orders only
                 const updatedOrders = Array.from(new Set([...currentOrders, orderId]));
-                localStorage.setItem(`recent_orders_${slug}`, JSON.stringify(updatedOrders));
+                persistentStorage.setItem(`recent_orders_${slug}`, JSON.stringify(updatedOrders));
                 setRecentOrderIds(updatedOrders);
                 
                 if (action === "track") {

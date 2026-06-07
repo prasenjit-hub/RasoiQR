@@ -13,6 +13,7 @@ import {
   Receipt
 } from "lucide-react";
 import { formatCurrency } from "../../utils/helpers";
+import { persistentStorage } from "../../utils/persistentStorage";
 
 const CustomerOrderHistory: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -52,7 +53,7 @@ const CustomerOrderHistory: React.FC = () => {
       // Get order IDs from local storage
       let orderIds: string[] = [];
       try {
-        const stored = localStorage.getItem(`recent_orders_${slug}`);
+        const stored = persistentStorage.getItem(`recent_orders_${slug}`);
         if (stored) {
           orderIds = JSON.parse(stored);
         }
