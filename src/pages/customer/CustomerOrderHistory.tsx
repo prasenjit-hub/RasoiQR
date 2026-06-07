@@ -33,7 +33,8 @@ const CustomerOrderHistory: React.FC = () => {
         {
           event: "UPDATE",
           schema: "public",
-          table: "orders"
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurant?.id}`,
         },
         () => {
           loadData();
@@ -44,7 +45,7 @@ const CustomerOrderHistory: React.FC = () => {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [slug]);
+  }, [slug, restaurant?.id]);
 
   const loadData = async () => {
     try {

@@ -51,16 +51,6 @@ const CustomerMenu: React.FC = () => {
 
   const navigate = useNavigate();
 
-  // Check for recent orders in this restaurant
-  const [recentOrderIds, setRecentOrderIds] = useState<string[]>(() => {
-    try {
-      const stored = persistentStorage.getItem(`recent_orders_${slug}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // Load restaurant and menu
   useEffect(() => {
     loadRestaurant();
@@ -298,7 +288,7 @@ const CustomerMenu: React.FC = () => {
             Kitchen Active
           </span>
         </div>
-        {recentOrderIds.length > 0 && (
+        {true && (
           <div className="absolute top-4 right-4 z-10 flex gap-2">
             <button
               onClick={() => navigate(`/tracking/${slug}`)}
@@ -684,8 +674,7 @@ const CustomerMenu: React.FC = () => {
                 // Keep unique orders only
                 const updatedOrders = Array.from(new Set([...currentOrders, orderId]));
                 persistentStorage.setItem(`recent_orders_${slug}`, JSON.stringify(updatedOrders));
-                setRecentOrderIds(updatedOrders);
-                
+
                 if (action === "track") {
                   navigate(`/tracking/${slug}`);
                 }
