@@ -50,8 +50,8 @@ const CustomerOrderHistory: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Get order IDs from local storage
+
+      // Get order IDs from persistent storage (localStorage + cookie fallback)
       let orderIds: string[] = [];
       try {
         const stored = persistentStorage.getItem(`recent_orders_${slug}`);
@@ -62,15 +62,14 @@ const CustomerOrderHistory: React.FC = () => {
         console.error("Local storage error:", e);
       }
 
-      // Fetch restaurant
-      const { data: restData } = await supabase
-        .from("restaurants")
-        .select("id, name, slug, logo_url")
-        .eq("slug", slug)
-        .single();
-        
-      if (restData) {
-        setRestaurant(restData);
+      // Fetch restaurant via SECURITY DEFINER RPC (RLS-bypassing)
+      const { data: restData } = await supabase.rpc("get_restaurant_by_slug", {
+        p_slug: slug,
+      });
+
+      const restaurantRow = Array.isArray(restData) ? restData[0] : restData;
+      if (restaurantRow) {
+        setRestaurant(restaurantRow);
       }
 
       if (orderIds.length === 0) {
@@ -78,15 +77,15 @@ const CustomerOrderHistory: React.FC = () => {
         return;
       }
 
-      // Fetch orders
-      const { data: ordersData, error } = await supabase
-        .from("orders")
-        .select("*")
-        .in("id", orderIds)
-        .order("created_at", { ascending: false });
-        
+      // Fetch orders via SECURITY DEFINER RPC (RLS-bypassing)
+      const { data: ordersData, error } = await supabase.rpc(
+        "get_orders_for_tracking",
+        { p_order_ids: orderIds }
+      );
+
       if (!error && ordersData) {
-        setOrders(ordersData);
+        const rows = Array.isArray(ordersData) ? ordersData : [ordersData];
+        setOrders(rows);
       }
     } catch (err) {
       console.error(err);

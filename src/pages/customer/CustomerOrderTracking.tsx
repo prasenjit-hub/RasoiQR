@@ -51,24 +51,31 @@ const CustomerOrderTracking: React.FC = () => {
 
   const loadOrder = async () => {
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select(`
-          *,
-          restaurant:restaurants (
-            name,
-            slug,
-            logo_url
-          )
-        `)
-        .eq("id", id)
-        .single();
-        
+      const { data, error } = await supabase.rpc("get_orders_for_tracking", {
+        p_order_ids: [id],
+      });
+
       if (error) {
         throw error;
       }
-      
-      setOrder(data);
+
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        throw new Error("Order not found");
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const orderData = {
+        ...row,
+        restaurant: {
+          name: row.restaurant_name,
+          slug: row.restaurant_slug,
+          logo_url: row.restaurant_logo_url,
+        },
+      };
+      delete (orderData as any).restaurant_name;
+      delete (orderData as any).restaurant_slug;
+      delete (orderData as any).restaurant_logo_url;
+      setOrder(orderData);
     } catch (err: any) {
       console.error(err);
       setError("We couldn't track this order. It might not exist or the link is invalid.");
