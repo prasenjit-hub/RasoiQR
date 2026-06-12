@@ -24,7 +24,7 @@ import {
   updateOrderStatus,
 } from "../../services/restaurantService";
 import type { Order } from "../../config/supabase";
-import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
+import { formatDateTime, formatCurrency } from "../../utils/helpers";
 import { useAuth } from "../../contexts/AuthContext";
 
 const Orders: React.FC = () => {
@@ -44,18 +44,6 @@ const Orders: React.FC = () => {
     if (!restaurant) return;
 
     const cleanup = subscribeToOrders(restaurant.id, (data) => {
-      // Phase 3.7 fix: use ref for closure-safe access to latest orders
-      // without re-running the effect on every state change.
-      const prev = ordersRef.current;
-      if (data.length > prev.length) {
-        const newOrders = data.filter(
-          (order) =>
-            order.status === "pending" && !prev.find((o) => o.id === order.id)
-        );
-        if (newOrders.length > 0) {
-          playSound("notification");
-        }
-      }
       ordersRef.current = data;
       setOrders(data);
       setLoading(false);

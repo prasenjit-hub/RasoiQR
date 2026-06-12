@@ -124,7 +124,8 @@ const CustomerMenu: React.FC = () => {
   const addToCart = (
     item: MenuItem,
     selectedSize?: any,
-    selectedAddons: any[] = []
+    selectedAddons: any[] = [],
+    quantityToAdd: number = 1
   ) => {
     const basePrice = selectedSize ? selectedSize.price : item.base_price;
     const addonsTotal = selectedAddons.reduce(
@@ -135,7 +136,7 @@ const CustomerMenu: React.FC = () => {
 
     const cartItem: CartItem = {
       ...item,
-      quantity: 1,
+      quantity: quantityToAdd,
       selectedSize,
       selectedAddons,
       itemTotal,
@@ -150,7 +151,7 @@ const CustomerMenu: React.FC = () => {
 
     if (existingIndex >= 0) {
       const newCart = [...cart];
-      newCart[existingIndex].quantity += 1;
+      newCart[existingIndex].quantity += quantityToAdd;
       setCart(newCart);
     } else {
       setCart([...cart, cartItem]);
@@ -633,6 +634,7 @@ const CustomerMenu: React.FC = () => {
         
         {selectedItem && (
           <ItemCustomizerContent
+            isOpen={showItemModal}
             item={selectedItem}
             onClose={() => setShowItemModal(false)}
             onAdd={addToCart}
@@ -656,6 +658,7 @@ const CustomerMenu: React.FC = () => {
         
         {restaurant && (
           <CheckoutContent
+            isOpen={showCheckout}
             cart={cart}
             restaurantId={restaurant.id}
             onClose={() => setShowCheckout(false)}
@@ -720,24 +723,35 @@ const CustomerMenu: React.FC = () => {
 
 // 🍕 Item Customizer Component (Separated for cleaner states)
 interface ItemCustomizerContentProps {
+  isOpen: boolean;
   item: MenuItem;
   onClose: () => void;
-  onAdd: (item: MenuItem, selectedSize?: any, selectedAddons?: any[]) => void;
+  onAdd: (item: MenuItem, selectedSize?: any, selectedAddons?: any[], quantity?: number) => void;
 }
 
 const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
+  isOpen,
   item,
   onClose,
   onAdd,
 }) => {
   const [selectedSize, setSelectedSize] = useState<any>(null);
   const [selectedAddons, setSelectedAddons] = useState<any[]>([]);
+  const [quantity, setQuantity] = useState(1);
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
   useEffect(() => {
-    if (item.sizes && item.sizes.length > 0) {
-      setSelectedSize(item.sizes[0]);
+    if (isOpen && !prevIsOpen) {
+      if (item.sizes && item.sizes.length > 0) {
+        setSelectedSize(item.sizes[0]);
+      } else {
+        setSelectedSize(null);
+      }
+      setSelectedAddons([]);
+      setQuantity(1);
     }
-  }, [item]);
+    setPrevIsOpen(isOpen);
+  }, [isOpen, prevIsOpen, item]);
 
   const toggleAddon = (addon: any) => {
     if (selectedAddons.find((a) => a.name === addon.name)) {
@@ -824,11 +838,18 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
                     onClick={() => toggleAddon(addon)}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border-2 transition-all ${
                       isSelected
-                        ? "border-neutral-900 bg-neutral-50 text-neutral-900 font-extrabold shadow-sm"
+                        ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 font-extrabold shadow-sm"
                         : "border-neutral-100 hover:border-neutral-200 text-neutral-500 bg-white"
                     }`}
                   >
-                    <span className="font-extrabold text-xs">{addon.name}</span>
+                    <div className="flex items-center gap-2">
+                      {isSelected ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-md border-2 border-neutral-200" />
+                      )}
+                      <span className="font-extrabold text-xs">{addon.name}</span>
+                    </div>
                     <span className="text-xs font-black text-amber-600">
                       +{formatCurrency(addon.price)}
                     </span>
@@ -840,13 +861,47 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
         )}
       </div>
 
-      <div className="bg-neutral-50/50 p-6 border-t border-neutral-100 rounded-t-3xl">
-        <div className="flex justify-between items-center text-lg font-black text-neutral-800 mb-4">
-          <span>Overall Cost</span>
-          <span className="text-xl text-neutral-900">{formatCurrency(calculateTotal())}</span>
+      <div className="bg-neutral-50/50 p-6 border-t border-neutral-100 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.03)]">
+        {/* Live Selection Summary */}
+        <div className="mb-4 bg-white p-3.5 rounded-2xl border border-neutral-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col gap-1.5">
+          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            Your Configuration
+          </p>
+          <div className="text-xs font-bold text-neutral-500 pl-3 border-l-2 border-neutral-100/80 ml-0.5 space-y-0.5">
+            <p className="text-neutral-800 font-extrabold">{quantity}x {item.name}</p>
+            {selectedSize && <p className="text-neutral-500">Size: <span className="text-neutral-700">{selectedSize.name}</span></p>}
+            {selectedAddons.length > 0 && <p className="text-neutral-500">Add-ons: <span className="text-neutral-700">{selectedAddons.map(a => a.name).join(', ')}</span></p>}
+            {!selectedSize && selectedAddons.length === 0 && <p className="text-neutral-400 italic">No modifications</p>}
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-3 bg-white border border-neutral-200 rounded-xl px-2 py-1 shadow-sm">
+            <button
+              onClick={() => quantity > 1 && setQuantity(q => q - 1)}
+              className="p-2 hover:bg-neutral-50 rounded-lg text-neutral-600 disabled:opacity-50"
+              disabled={quantity <= 1}
+            >
+              <Minus className="w-4 h-4 stroke-[3]" />
+            </button>
+            <span className="w-6 text-center font-extrabold text-sm text-neutral-800 select-none">
+              {quantity}
+            </span>
+            <button
+              onClick={() => setQuantity(q => q + 1)}
+              className="p-2 hover:bg-neutral-50 rounded-lg text-neutral-600"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+            </button>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest leading-none mb-1">Total</p>
+            <span className="text-xl font-black text-neutral-900">{formatCurrency(calculateTotal() * quantity)}</span>
+          </div>
         </div>
         <button
-          onClick={() => onAdd(item, selectedSize, selectedAddons)}
+          onClick={() => onAdd(item, selectedSize, selectedAddons, quantity)}
           className="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-extrabold py-4 rounded-xl shadow-lg shadow-neutral-900/15 active:scale-[0.99] transition-all text-xs uppercase tracking-wider"
         >
           Add Customised Plate
@@ -859,6 +914,7 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
 
 // 📋 Checkout Panel Component (Slide-up Content)
 interface CheckoutContentProps {
+  isOpen: boolean;
   cart: CartItem[];
   restaurantId: string;
   onClose: () => void;
@@ -866,6 +922,7 @@ interface CheckoutContentProps {
 }
 
 const CheckoutContent: React.FC<CheckoutContentProps> = ({
+  isOpen,
   cart,
   restaurantId,
   onClose,
@@ -881,6 +938,18 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   const [success, setSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  // Reset success state ONLY when modal transitions from closed to open
+  useEffect(() => {
+    if (isOpen && !prevIsOpen) {
+      setSuccess(false);
+      setOrderNumber(null);
+      setOrderId(null);
+      setError("");
+    }
+    setPrevIsOpen(isOpen);
+  }, [isOpen, prevIsOpen]);
 
   const subtotal = cart.reduce(
     (sum, item) => sum + item.itemTotal * item.quantity,

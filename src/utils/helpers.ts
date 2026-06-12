@@ -185,10 +185,8 @@ export const copyToClipboard = async (text: string): Promise<boolean> => {
  * Play notification sound
  */
 export const playNotificationSound = () => {
-  const audio = new Audio(
-    "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaP1fPTgjMGHm7A7+OZSA0OVaztl"
-  );
-  audio.volume = 0.3;
+  const audio = new Audio("/notification.aac");
+  audio.volume = 1.0;
   audio.play().catch(() => {
     // Ignore if autoplay is blocked
   });
@@ -201,4 +199,27 @@ export const playSound = (
   _type: "notification" | "success" | "error" = "notification"
 ) => {
   playNotificationSound();
+};
+
+/**
+ * Request Browser Notification Permission
+ */
+export const requestNotificationPermission = async () => {
+  if (!("Notification" in window)) {
+    console.log("This browser does not support desktop notification");
+    return;
+  }
+  if (Notification.permission !== "denied" && Notification.permission !== "granted") {
+    await Notification.requestPermission();
+  }
+};
+
+/**
+ * Show Browser Notification
+ */
+export const showBrowserNotification = (title: string, body?: string) => {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
 };

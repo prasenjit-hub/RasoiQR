@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   useNavigate,
   Routes,
@@ -25,11 +25,39 @@ import RestaurantSettings from "./RestaurantSettings";
 import NotAuthorized from "../admin/NotAuthorized";
 
 import BlockedAccount from "./BlockedAccount";
+import { supabase } from "../../config/supabase";
+import { playSound } from "../../utils/helpers";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, restaurant, ready, signOut } = useAuth();
+
+  useEffect(() => {
+    if (!restaurant) return;
+
+    const channel = supabase
+      .channel(`global-order-alerts-${restaurant.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurant.id}`,
+        },
+        (payload) => {
+          if (payload.new.status === "pending") {
+            playSound("notification");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [restaurant]);
 
   if (!ready) {
     return <Loading text="Verifying session..." />;
