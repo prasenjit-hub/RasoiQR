@@ -11,6 +11,8 @@ import {
   Clock,
   MapPin,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   Card,
@@ -739,16 +741,14 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
   const [selectedAddons, setSelectedAddons] = useState<any[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  const [isConfigExpanded, setIsConfigExpanded] = useState(true);
 
   useEffect(() => {
     if (isOpen && !prevIsOpen) {
-      if (item.sizes && item.sizes.length > 0) {
-        setSelectedSize(item.sizes[0]);
-      } else {
-        setSelectedSize(null);
-      }
+      setSelectedSize(null);
       setSelectedAddons([]);
       setQuantity(1);
+      setIsConfigExpanded(true);
     }
     setPrevIsOpen(isOpen);
   }, [isOpen, prevIsOpen, item]);
@@ -767,8 +767,15 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
       (sum, addon) => sum + addon.price,
       0
     );
+    // If sizes exist but none selected, show total as 0 or just addons
+    if (item.sizes && item.sizes.length > 0 && !selectedSize) {
+      return addonsTotal;
+    }
     return basePrice + addonsTotal;
   };
+
+  const hasModifications = selectedSize !== null || selectedAddons.length > 0 || quantity > 1;
+  const isAddDisabled = !!(item.sizes && item.sizes.length > 0 && !selectedSize);
 
   return (
     <>
@@ -811,11 +818,18 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
                   onClick={() => setSelectedSize(size)}
                   className={`flex flex-col items-start p-3.5 rounded-2xl border-2 text-left transition-all ${
                     selectedSize?.name === size.name
-                      ? "border-neutral-900 bg-neutral-50 text-neutral-900 font-extrabold shadow-sm"
+                      ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 font-extrabold shadow-sm"
                       : "border-neutral-100 hover:border-neutral-200 text-neutral-500 bg-white"
                   }`}
                 >
-                  <span className="font-extrabold text-sm">{size.name}</span>
+                  <div className="w-full flex items-center justify-between">
+                    <span className="font-extrabold text-sm">{size.name}</span>
+                    {selectedSize?.name === size.name ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <div className="w-4 h-4 rounded-full border-2 border-neutral-200" />
+                    )}
+                  </div>
                   <span className="text-xs font-black mt-1 text-amber-600">
                     {formatCurrency(size.price)}
                   </span>
@@ -862,17 +876,36 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
       </div>
 
       <div className="bg-neutral-50/50 p-6 border-t border-neutral-100 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.03)]">
-        {/* Live Selection Summary */}
-        <div className="mb-4 bg-white p-3.5 rounded-2xl border border-neutral-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col gap-1.5">
-          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            Your Configuration
-          </p>
-          <div className="text-xs font-bold text-neutral-500 pl-3 border-l-2 border-neutral-100/80 ml-0.5 space-y-0.5">
-            <p className="text-neutral-800 font-extrabold">{quantity}x {item.name}</p>
-            {selectedSize && <p className="text-neutral-500">Size: <span className="text-neutral-700">{selectedSize.name}</span></p>}
-            {selectedAddons.length > 0 && <p className="text-neutral-500">Add-ons: <span className="text-neutral-700">{selectedAddons.map(a => a.name).join(', ')}</span></p>}
-            {!selectedSize && selectedAddons.length === 0 && <p className="text-neutral-400 italic">No modifications</p>}
+        {/* Live Selection Summary with smooth lightweight animation */}
+        <div 
+          className={`overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            hasModifications ? "max-h-[250px] opacity-100 translate-y-0 mb-4" : "max-h-0 opacity-0 translate-y-4 mb-0"
+          }`}
+        >
+          <div className="bg-white p-3.5 rounded-2xl border border-neutral-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] flex flex-col gap-1.5">
+            <button
+              onClick={() => setIsConfigExpanded(e => !e)}
+              className="flex items-center justify-between w-full group outline-none focus:outline-none"
+            >
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                Your Configuration
+              </p>
+              <span className="text-neutral-300 group-hover:text-neutral-400 transition-colors">
+                {isConfigExpanded
+                  ? <ChevronUp className="w-3.5 h-3.5" />
+                  : <ChevronDown className="w-3.5 h-3.5" />}
+              </span>
+            </button>
+            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              isConfigExpanded ? "max-h-40 opacity-100" : "max-h-0 opacity-0"
+            }`}>
+              <div className="text-xs font-bold text-neutral-500 pl-3 border-l-2 border-neutral-100/80 ml-0.5 space-y-0.5 pt-0.5">
+                <p className="text-neutral-800 font-extrabold">{quantity}x {item.name}</p>
+                {selectedSize && <p className="text-neutral-500">Size: <span className="text-neutral-700">{selectedSize.name}</span></p>}
+                {selectedAddons.length > 0 && <p className="text-neutral-500">Add-ons: <span className="text-neutral-700">{selectedAddons.map(a => a.name).join(', ')}</span></p>}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -901,10 +934,15 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
           </div>
         </div>
         <button
-          onClick={() => onAdd(item, selectedSize, selectedAddons, quantity)}
-          className="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-extrabold py-4 rounded-xl shadow-lg shadow-neutral-900/15 active:scale-[0.99] transition-all text-xs uppercase tracking-wider"
+          onClick={() => !isAddDisabled && onAdd(item, selectedSize, selectedAddons, quantity)}
+          disabled={isAddDisabled}
+          className={`w-full font-extrabold py-4 rounded-xl shadow-lg active:scale-[0.99] transition-all text-xs uppercase tracking-wider ${
+            isAddDisabled 
+              ? "bg-neutral-200 text-neutral-400 shadow-none cursor-not-allowed" 
+              : "bg-neutral-900 hover:bg-neutral-800 text-white shadow-neutral-900/15"
+          }`}
         >
-          Add Customised Plate
+          {isAddDisabled ? "Select a Variant" : "Add Customised Plate"}
         </button>
       </div>
     </>

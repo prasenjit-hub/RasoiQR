@@ -203,22 +203,32 @@ const CustomerOrderTracking: React.FC = () => {
           <h3 className="font-extrabold text-sm text-gray-400 uppercase tracking-widest mb-4">Order Summary</h3>
           
           <div className="space-y-4 mb-6">
-            {(order.items as any[])?.map((item: any, index: number) => (
-              <div key={index} className="flex justify-between items-start">
-                <div className="flex gap-3">
-                  <div className="w-7 h-7 bg-gray-50 flex items-center justify-center rounded-lg border border-gray-100 flex-shrink-0 text-xs font-black text-gray-700">
-                    {item.quantity}x
-                  </div>
-                  <div>
-                    <p className="font-bold text-gray-800 text-sm">{item.name}</p>
-                    <div className="text-[10px] font-medium text-gray-500 mt-0.5">
-                      {item.selected_size?.name && <span>Size: {item.selected_size.name}</span>}
-                      {item.selected_addons?.length > 0 && <span> | + {item.selected_addons.map((a:any) => a.name).join(", ")}</span>}
+            {(order.items as any[])?.map((item: any, index: number) => {
+              const basePrice = item.selected_size?.price ?? item.unit_price ?? item.price ?? 0;
+              const addonsTotal = (item.selected_addons ?? []).reduce((sum: number, a: any) => sum + (a.price ?? 0), 0);
+              const lineTotal = (basePrice + addonsTotal) * (item.quantity ?? 1);
+              return (
+                <div key={index} className="flex justify-between items-start">
+                  <div className="flex gap-3">
+                    <div className="w-7 h-7 bg-gray-50 flex items-center justify-center rounded-lg border border-gray-100 flex-shrink-0 text-xs font-black text-gray-700">
+                      {item.quantity}x
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                      <div className="text-[10px] font-medium text-gray-500 mt-0.5">
+                        {item.selected_size?.name && <span>Size: {item.selected_size.name}</span>}
+                        {item.selected_addons?.length > 0 && <span> | + {item.selected_addons.map((a:any) => a.name).join(", ")}</span>}
+                      </div>
                     </div>
                   </div>
+                  {lineTotal > 0 && (
+                    <span className="text-sm font-bold text-gray-700 flex-shrink-0 ml-3">
+                      {formatCurrency(lineTotal)}
+                    </span>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {/* The items from menu might be missing names in JSONB. We might need fixing it temporarily. */}
           </div>
           
