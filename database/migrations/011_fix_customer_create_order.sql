@@ -1,3 +1,9 @@
+-- ⚠️ HISTORICAL / SUPERSEDED — do NOT run this file.
+-- Its customer_create_order body predates the live hardening: it lacks the
+-- 025 dine-in table guard, the size-name NULL guard, per-line quantity 1-50
+-- and the 026 trial guard. The deployed definition is carried by
+-- 025_dine_in_requires_table.sql (025) and 026_trial_expiry_enforcement.sql.
+--
 -- =====================================================
 -- Migration 011 — Fix ambiguous order_number in
 --                 customer_create_order

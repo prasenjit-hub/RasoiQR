@@ -81,6 +81,14 @@ export interface Restaurant {
   address?: string;
   restaurant_type?: string;
   logo_url?: string;
+  /** Migration 035: owner-uploaded customer-menu cover image (https). NULL = default photo. */
+  banner_url?: string | null;
+  /**
+   * Migrations 044/045: how many tables the owner declared (1..200). NULL = no
+   * tables declared, which also means **no table QR codes** — and since 045
+   * dine-in ordering needs a table's code, that leaves takeaway only.
+   */
+  table_count?: number | null;
   qr_code_url?: string;
   subscription_plan: "free_trial" | "starter" | "pro" | "enterprise";
   status: "active" | "blocked" | "trial";
@@ -88,8 +96,28 @@ export interface Restaurant {
   internal_notes?: string;
   block_reason?: string;
   trial_ends_at?: string;
+  /** Migration 029: who set the current block — 'system' (expiry) or 'admin' (manual). */
+  blocked_by?: "system" | "admin" | null;
+  /** Migration 029: admin-granted access window; expiry stays paused until this timestamp. */
+  access_until?: string | null;
+  /** Migration 031: white-glove handover — admin finished setup; the owner must set a new password. */
+  setup_complete: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Migration 045: one row of the owner's table list (`restaurant_tables`).
+ * `code` is the capability the printed QR carries — `/menu/<slug>?t=<code>` —
+ * and the server resolves it to the `label` guests and staff read. The table
+ * itself is never named by a client, only by this code.
+ */
+export interface RestaurantTable {
+  id: string;
+  label: string;
+  code: string;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export interface User {
@@ -110,6 +138,7 @@ export interface MenuItem {
   base_price: number;
   category?: string;
   image_url?: string;
+  is_veg: boolean | null;
   is_available: boolean;
   sales_count?: number;
   sizes?: { name: string; price: number }[];

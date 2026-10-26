@@ -41,7 +41,7 @@ $$;
 
 -- 1. Registration Requests (public contact form)
 CREATE TABLE IF NOT EXISTS registration_requests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_name TEXT NOT NULL,
   owner_name TEXT NOT NULL,
   phone TEXT NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS registration_requests (
 
 -- 2. Restaurants
 CREATE TABLE IF NOT EXISTS restaurants (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   registration_request_id UUID REFERENCES registration_requests(id),
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 4. Menu Categories
 CREATE TABLE IF NOT EXISTS menu_categories (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS menu_categories (
 
 -- 5. Menu Items
 CREATE TABLE IF NOT EXISTS menu_items (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   category_id UUID REFERENCES menu_categories(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
 
 -- 6. Orders
 CREATE TABLE IF NOT EXISTS orders (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   order_number TEXT NOT NULL,
   order_type TEXT NOT NULL CHECK (order_type IN ('qr', 'counter', 'phone', 'table')),
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS orders (
 -- used (Supabase Auth handles passwords). Phase 2 of LAUNCH_PLAN.md
 -- removes it entirely.
 CREATE TABLE IF NOT EXISTS admin_users (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT,
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
 
 -- 8. Notifications
 CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID REFERENCES restaurants(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   type TEXT NOT NULL,
@@ -468,7 +468,7 @@ BEGIN
   RETURNING id INTO v_restaurant_id;
 
   INSERT INTO users (id, restaurant_id, email, password_hash, temp_password, role)
-  VALUES (COALESCE(p_auth_user_id, uuid_generate_v4()), v_restaurant_id, p_email, p_password_hash, TRUE, 'owner')
+  VALUES (COALESCE(p_auth_user_id, gen_random_uuid()), v_restaurant_id, p_email, p_password_hash, TRUE, 'owner')
   RETURNING id INTO v_user_id;
 
   UPDATE registration_requests

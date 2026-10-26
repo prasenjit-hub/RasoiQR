@@ -52,6 +52,18 @@ The script will:
 - The `password_hash` column on `admin_users` is currently `NOT NULL` in the schema. The script writes the placeholder value `"supabase_auth_managed"` so the insert succeeds. Phase 2 of `LAUNCH_PLAN.md` drops the column.
 - This script is **not** meant for routine use. Most admins should be invited through the dashboard once that flow is built.
 
+## `check-migrations.mjs`
+
+Not a service-role script and not a database client — it reads the repository only, needs no credentials and is safe to run anywhere:
+
+```bash
+node database/scripts/check-migrations.mjs
+```
+
+It compares the three hand-written records of every database change — `database/migrations/*.sql`, the `supabase_migrations.schema_migrations` ledger and the migration table in `AGENTS.md` — and exits 1 on drift. It also warns when `database/setup.sql` (the from-scratch path) does not build a migration that exists. It cannot see the live database; run the query it prints, or `supabase migration list`, for that leg.
+
+Why it exists: migration 033 was applied with `execute_sql` (which, unlike the MCP `apply_migration` tool, records nothing) and its file carried no ledger `INSERT`, so it was invisible in the live ledger and undocumented in `AGENTS.md`. Run this before calling any database change done.
+
 ## Security checklist before running
 
 - [ ] `.env.admin` exists at the project root and is **not** tracked by git

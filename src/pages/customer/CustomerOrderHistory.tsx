@@ -133,10 +133,10 @@ const CustomerOrderHistory: React.FC = () => {
           >
             <ChevronLeft className="w-5 h-5" />
           </Link>
-          <div className="flex-1">
-            <h1 className="font-extrabold text-lg text-gray-900 tracking-tight">Your Orders</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-extrabold text-lg text-gray-900 tracking-tight truncate">Your Orders</h1>
             {restaurant && (
-              <p className="text-xs text-gray-500 font-semibold">{restaurant.name}</p>
+              <p className="text-xs text-gray-500 font-semibold truncate">{restaurant.name}</p>
             )}
           </div>
           <button 

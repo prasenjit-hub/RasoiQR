@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RasoiQR — Customer Menu UI Demos (review sheet)</title>
+<style>
+  :root{
+    --text:#0A0A0A; --text2:#6B6B6B; --border:#E5E5E5; --amber:#F59E0B;
+    --emerald:#10B981; --neutral900:#0A0A0A; --neutral100:#F4F4F5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:#F4F4F5;color:var(--text);padding:28px 20px 90px;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1460px;margin:0 auto}
+  .doc-title{font-size:26px;font-weight:800;letter-spacing:-.02em}
+  .doc-sub{color:var(--text2);font-size:14px;line-height:1.65;margin-top:8px;max-width:1000px}
+  .callout{margin-top:14px;background:#fff;border:1px solid var(--border);border-left:3px solid var(--amber);
+    border-radius:12px;padding:14px 16px;font-size:13px;color:#3f3f46;line-height:1.7;max-width:1000px}
+  .callout b{color:var(--text)}
+
+  h2.sec{font-size:19px;font-weight:800;margin:52px 0 6px;letter-spacing:-.01em}
+  h2.sec .num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:99px;
+    background:var(--text);color:#fff;font-size:13px;margin-right:10px;vertical-align:1px}
+  p.secsub{color:var(--text2);font-size:13.5px;line-height:1.65;margin-bottom:20px;max-width:1000px}
+  .grid{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+
+  /* ---------- phone frame ---------- */
+  .demo{width:max-content}
+  .phone{width:375px;height:690px;background:#fff;border:1px solid #E4E4E7;border-radius:26px;overflow:hidden;
+    position:relative;display:flex;flex-direction:column;box-shadow:0 12px 34px rgba(0,0,0,.13)}
+  .phone.w320{width:320px}
+  /* focused crop: only the top of the screen matters for these frames */
+  .grid.compact .phone{height:352px}
+  .cap{margin-top:10px;width:375px}
+  .phone.w320 + .cap{width:320px}
+  .cap .t{font-size:13.5px;font-weight:800}
+  .cap .d{font-size:12.5px;color:var(--text2);line-height:1.6;margin-top:3px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:99px;margin-right:6px;
+    vertical-align:1.5px;letter-spacing:.02em}
+  .badge.ok{background:#ECFDF5;color:#047857;border:1px solid #A7F3D0}
+  .badge.bad{background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA}
+  .badge.cur{background:#F4F4F5;color:#3f3f46;border:1px solid #E4E4E7}
+  .badge.plan{background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE}
+
+  /* ---------- app pieces ---------- */
+  .banner{height:190px;flex:none;position:relative;
+    background:
+      radial-gradient(120px 90px at 78% 30%, rgba(251,191,36,.55), transparent 70%),
+      radial-gradient(160px 120px at 18% 70%, rgba(16,185,129,.28), transparent 70%),
+      linear-gradient(135deg,#3f2d20 0%,#6b4630 45%,#2b1d15 100%);}
+  .banner::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.55))}
+  .banner .row{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:8px;z-index:3}
+  .banner .row.right{justify-content:flex-end}
+  .b-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;padding:7px 13px;border-radius:99px;
+    backdrop-filter:blur(8px);white-space:nowrap}
+  .b-live{background:rgba(0,0,0,.42);color:#34d399;border:1px solid rgba(52,211,153,.35)}
+  .b-live i{width:8px;height:8px;border-radius:99px;background:#10B981;display:inline-block}
+  .b-amber{background:rgba(245,158,11,.92);color:#FFFBEB;border:1px solid rgba(245,158,11,.4)}
+  .b-white{background:rgba(255,255,255,.96);color:#0A0A0A;border:1px solid rgba(255,255,255,.55);
+    box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .b-white svg,.b-amber svg{flex:none}
+  .table-chip{display:inline-flex;align-items:center;gap:5px;background:#ECFDF5;color:#047857;border:1px solid #A7F3D0;
+    font-size:12px;font-weight:800;padding:7px 11px;border-radius:99px;white-space:nowrap}
+
+  /* NOTE: no overflow:hidden here — the hero card overlaps the banner with a
+     negative top margin (like the real app), so clipping it would hide the name.
+     The rounded .phone border does the clipping instead. */
+  .body{flex:1;position:relative;background:#FAFAFA}
+
+  /* 21px side padding + 20px card padding + 64px logo reproduces the exact text
+     width the real app had at 375px (213px), so the size tiers below match it. */
+  .hero{max-width:576px;margin:-70px auto 0;padding:0 21px;position:relative;z-index:5}
+  .hero-card{background:#fff;border:1px solid #F3F4F6;border-radius:22px;padding:20px;
+    box-shadow:0 15px 35px rgba(0,0,0,.06);display:flex;gap:16px;align-items:flex-start}
+  .logo{width:64px;height:64px;border-radius:16px;flex:none;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:24px;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.14);
+    background:linear-gradient(to top right,#fbbf24,#f97316)}
+  .hero-body{flex:1;min-width:0}
+  .rname{font-weight:800;color:#111827;letter-spacing:-.025em;line-height:1.3;
+    overflow-wrap:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .n-big{font-size:24px}   /* tier 1: <=14 chars */
+  .n-med{font-size:18px}   /* tier 2: 15-27 */
+  .n-long{font-size:15px}  /* tier 3: 28-45 */
+  .n-xl{font-size:14px}    /* tier 4: >45 */
+  .rtype{font-size:12px;font-weight:700;color:#D97706;letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+  .hero-stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid #F3F4F6;
+    font-size:11.5px;color:#4B5563;font-weight:600}
+  .rating{background:#FFFBEB;color:#B45309;border-radius:8px;padding:3px 7px;font-weight:800}
+
+  .searchwrap{max-width:576px;margin:22px auto 0;padding:0 16px}
+  .search{background:#fff;border:1px solid #F3F4F6;border-radius:16px;padding:14px 16px 14px 44px;font-size:14px;
+    color:#9CA3AF;font-weight:500;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .search::before{content:"⌕";position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:18px;color:#9CA3AF}
+
+  .catbar{background:#fff;border-bottom:1px solid #F3F4F6;box-shadow:0 1px 2px rgba(0,0,0,.04);margin-top:16px}
+  .catrow{max-width:576px;margin:0 auto;padding:12px 16px;display:flex;gap:8px;overflow:hidden;position:relative}
+  .chip{font-size:12px;font-weight:800;padding:8px 14px;border-radius:12px;white-space:nowrap;
+    background:#F9FAFB;color:#4B5563;border:1px solid #F3F4F6}
+  .chip.on{background:#111827;color:#fff;border-color:#111827;box-shadow:0 4px 10px rgba(17,24,39,.12)}
+
+  .list{max-width:576px;margin:0 auto;padding:16px}
+  .item{background:#fff;border:1px solid #F9FAFB;border-radius:20px;padding:14px;display:flex;gap:12px;
+    align-items:center;box-shadow:0 1px 2px rgba(0,0,0,.03);margin-bottom:14px}
+  .item .info{flex:1;min-width:0}
+  .item h3{font-size:15px;font-weight:800;color:#1F2937;letter-spacing:-.01em}
+  .item .desc{font-size:12px;color:#9CA3AF;margin-top:4px;line-height:1.5;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .item .price{font-size:15px;font-weight:800;color:#111827;margin-top:8px}
+  .thumb{width:96px;height:74px;border-radius:14px;flex:none;border:1px solid #F3F4F6;
+    background:linear-gradient(135deg,#fecaca,#f87171)}
+  .thumb.b{background:linear-gradient(135deg,#bfdbfe,#60a5fa)}
+  .thumb.c{background:linear-gradient(135deg,#fde68a,#f59e0b)}
+  .veg{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border:1.5px solid #16A34A;
+    border-radius:3px;font-size:8px;color:#16A34A;margin-right:6px;vertical-align:1.5px}
+  .veg.nv{border-color:#DC2626;color:#DC2626}
+
+  /* floating cart bar */
+  .cartbar{position:absolute;left:16px;right:16px;bottom:14px;background:#0A0A0A;border:1px solid #262626;
+    color:#fff;border-radius:16px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 10px 30px rgba(0,0,0,.28);z-index:20}
+  .cartbar .lbl{font-size:9.5px;font-weight:800;color:#A1A1AA;letter-spacing:.12em;text-transform:uppercase}
+  .cartbar .amt{font-size:15px;font-weight:900;margin-top:2px}
+  .cartbar .cnt{width:22px;height:22px;border-radius:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+  .cartbar .view{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.08);border-radius:11px;
+    padding:8px 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+
+  /* Call Waiter FAB */
+  .fab{position:absolute;right:16px;display:flex;align-items:center;gap:7px;background:#0A0A0A;color:#fff;
+    border:1px solid #262626;border-radius:99px;padding:11px 16px;font-size:13px;font-weight:800;
+    box-shadow:0 10px 25px rgba(0,0,0,.28);z-index:25}
+  .fab.small{width:38px;height:38px;padding:0;justify-content:center;border-radius:99px}
+
+  /* sticky navbar mock */
+  .navbar{height:54px;flex:none;background:#fff;border-bottom:1px solid #EEE;box-shadow:0 1px 3px rgba(0,0,0,.06);
+    display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;z-index:30;position:relative}
+  .navbar.tight{justify-content:space-between}
+  .nv-dark{display:flex;align-items:center;gap:6px;background:#0A0A0A;color:#fff;border:1px solid #262626;
+    border-radius:99px;padding:9px 13px;font-size:12px;font-weight:800;white-space:nowrap}
+  .nv-amber{display:flex;align-items:center;gap:6px;background:#F59E0B;color:#fff;border:1px solid rgba(245,158,11,.6);
+    border-radius:99px;padding:9px 13px;font-size:12px;font-weight:800;white-space:nowrap}
+  .navbar.overflow-demo{display:flex;flex-wrap:nowrap;width:max-content;min-width:100%}
+  .sticky-stack{display:flex;flex-direction:column}
+
+  /* summary table */
+  table{border-collapse:collapse;width:100%;max-width:1000px;background:#fff;border:1px solid var(--border);
+    border-radius:12px;overflow:hidden;font-size:13px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #F1F1F3}
+  th{background:#FAFAFA;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:#52525B}
+  tr:last-child td{border-bottom:none}
+  td.mono{font-variant-numeric:tabular-nums;font-weight:700}
+  .yes{color:#047857;font-weight:800}
+  .no{color:#B91C1C;font-weight:800}
+  code{background:#F4F4F5;border:1px solid #E4E4E7;border-radius:5px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-title">RasoiQR — Customer Menu UI Demos</div>
+  <p class="doc-sub">Is session me jo bhi layout options banaye/check kiye, wo sab ek jagah. Har frame app ke <b>asli sizes aur colors</b> use karta hai (375px / 320px mobile widths), taaki aap side-by-side compare kar sako.</p>
+  <div class="callout">
+    <b>Note:</b> ye <b>faithful HTML re-creations</b> hain, live app ke pixel captures nahi — kyunki is machine pe headless browser nahi hai jo PNG save kar sake.
+    Sizes (24 / 18 / 15 / 14px naam, 54px navbar, amber/emerald/neutral palette) app jaise hi hain. Real app me banner ek food photo hai (yahan gradient).
+    <br><br>
+    <b>Implemented:</b> sirf Section 2 (naam ki responsive sizing) code me hai. Section 3, 4 aur 5 <b>proposals</b> hain — sirf demo, koi code change nahi.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">1</span>Aaj kya situation hai (baseline)</h2>
+  <p class="secsub">Banner top-left me "Kitchen Active" (hardcoded, fake status) aur top-right me "Track Orders". Banner <b>sticky nahi</b> hai — scroll karte hi dono gayab.</p>
+  <div class="grid">
+
+    <div class="demo">
+      <div class="phone">
+        <div class="banner">
+          <div class="row"><span class="b-pill b-live"><i></i>Kitchen Active</span></div>
+          <div class="row right"><span class="b-pill b-amber">📋 Track Orders</span></div>
+        </div>
+        <div class="body">
+          <div class="hero">
+            <div class="hero-card">
+              <div class="logo">B</div>
+              <div class="hero-body">
+                <h1 class="rname n-big">Babu Mosai</h1>
+                <p class="rtype">Fine Dining / Multi-Cuisine</p>
+                <div class="hero-stats">
+                  <span class="rating">★ 4.9 | 100+ Ratings</span>
+                  <span>🕒 15-20 mins</span>
+                  <span>🍽️ Table 5</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="searchwrap"><div class="search">Search for dynamic dishes, starters…</div></div>
+          <div class="catbar"><div class="catrow">
+            <span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span><span class="chip">🍔 Burgers</span><span class="chip">🍹 Drinks</span>
+          </div></div>
+          <div class="list">
+            <div class="item">
+              <div class="info"><h3><span class="veg">●</span>Coca Cola</h3><div class="price">₹80.00</div></div>
+              <div class="thumb"></div>
+            </div>
+            <div class="item">
+              <div class="info"><h3><span class="veg">●</span>Veg Chowmein</h3>
+                <div class="desc">its a very special and testy dish.</div><div class="price">₹80.00</div></div>
+              <div class="thumb c"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">
+        <div class="t">1.1 — Current menu (Babu Mosai, Table 5)</div>
+        <div class="d">Reference frame. Banner top-left = Kitchen Active, top-right = Track Orders.</div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="phone">
+        <div class="banner" style="height:120px"></div>
+        <div class="body" style="background:#FAFAFA">
+          <div class="catbar" style="margin-top:0;box-shadow:0 2px 6px rgba(0,0,0,.06)"><div class="catrow">
+            <span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span><span class="chip">🍔 Burgers</span>
+          </div></div>
+          <div class="list">
+            <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+            <div class="item"><div class="info"><h3><span class="veg">●</span>Chicken Dam Biryani</h3><div class="price">₹120.00</div></div><div class="thumb c"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">
+        <div class="t">1.2 — Scroll ke baad (banner gayab)</div>
+        <div class="d">Sirf sticky category bar bacha. <b>Isliye</b> banner me lagaya gaya koi button browsing ke waqt reachable nahi hota.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">2</span>Naam ki length ke hisaab se font size <span class="badge ok" style="margin-left:8px">IMPLEMENTED</span></h2>
+  <p class="secsub">Yahi code me laga hai (<code>restaurantNameSizeClass()</code> in <code>src/utils/helpers.ts</code>). Chhota naam → bada text, lamba naam → chhota text, aur max 2 lines (uske baad "…"). Fixed 18px hataya gaya.</p>
+  <div class="grid compact">
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="hero"><div class="hero-card">
+          <div class="logo">C</div>
+          <div class="hero-body"><h1 class="rname n-big">Cafe</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+      </div>
+    </div><div class="cap"><div class="t">2.1 — "Cafe" (4 chars) · 24px</div><div class="d">Tier 1 (≤14 chars) → <code>text-xl</code></div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="hero"><div class="hero-card">
+          <div class="logo">T</div>
+          <div class="hero-body"><h1 class="rname n-big">test session</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+      </div>
+    </div><div class="cap"><div class="t">2.2 — "test session" (12) · 24px</div><div class="d">Aapki original complaint: pehle 18px tha, bahut chhota lagta tha.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="hero"><div class="hero-card">
+          <div class="logo">R</div>
+          <div class="hero-body"><h1 class="rname n-med">Royal Biryani House</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+      </div>
+    </div><div class="cap"><div class="t">2.3 — "Royal Biryani House" (19) · 18px</div><div class="d">Tier 2 (15–27) → 1 line me fit</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="hero"><div class="hero-card">
+          <div class="logo">S</div>
+          <div class="hero-body"><h1 class="rname n-long">Sri Sathya Sai Andhra Style Family Restaurant</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+      </div>
+    </div><div class="cap"><div class="t">2.4 — 45 chars · 15px · 2 lines (poora fit)</div><div class="d">Tier 3 (28–45) → <code>text-base</code></div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="hero"><div class="hero-card">
+          <div class="logo">T</div>
+          <div class="hero-body"><h1 class="rname n-xl">Thiruvananthapuram Royal Heritage Kitchen &amp; Biryani House</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+      </div>
+    </div><div class="cap"><div class="t">2.5 — 57 chars · 14px · 2 lines + "…"</div><div class="d">Tier 4 (&gt;45) → clamp. Overflow kabhi nahi.</div></div></div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">3</span>Call Waiter — placement options <span class="badge plan" style="margin-left:8px">PROPOSAL</span></h2>
+  <p class="secsub">"Kitchen Active" hatane ka logic sahi hai (QR scan = customer andar hai; wo pill anyway hardcoded hai). Neeche chaar placements — sabka tradeoff dikhaya gaya.</p>
+  <div class="grid">
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"><div class="row"><span class="b-pill b-live"><i></i>Kitchen Active</span></div>
+        <div class="row right"><span class="b-pill b-amber">📋 Track Orders</span></div></div>
+      <div class="body">
+        <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+        <div class="list">
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        </div>
+        <div class="fab" style="bottom:16px">🔔 Call Waiter</div>
+      </div>
+    </div><div class="cap"><div class="t">3.1 — Bottom-right FAB (cart khali)</div><div class="d"><span class="badge ok">BEST</span>Thumb-reachable, hamesha visible. Cart khali ho to yahi best spot.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="list">
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+          <div class="item"><div class="info"><h3><span class="veg nv">●</span>Chicken Chowmein</h3><div class="price">₹80.00</div></div><div class="thumb b"></div></div>
+        </div>
+        <div class="fab" style="bottom:104px">🔔 Call Waiter</div>
+        <div class="cartbar">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="cnt">1</span>
+            <div><div class="lbl">Your Tray Total</div><div class="amt">₹80.00</div></div>
+          </div>
+          <span class="view">View Order ›</span>
+        </div>
+      </div>
+    </div><div class="cap"><div class="t">3.2 — Cart bar ke <b>upar</b> stack</div><div class="d">Cart me item aaya to FAB apne aap 104px upar shift hota hai. Dono CTA clean.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px">
+        <div class="row"><span class="b-pill b-white">🔔 Call Waiter</span></div>
+        <div class="row right"><span class="b-pill b-amber">📋 Track Orders</span></div>
+      </div>
+      <div class="body">
+        <div class="hero" style="margin-top:-60px"><div class="hero-card">
+          <div class="logo">B</div>
+          <div class="hero-body"><h1 class="rname n-big">Babu Mosai</h1><p class="rtype">Fine Dining / Multi-Cuisine</p></div>
+        </div></div>
+        <div class="catbar" style="margin-top:14px"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+      </div>
+    </div><div class="cap"><div class="t">3.3 — "Kitchen Active" → "Call Waiter"</div><div class="d"><span class="badge bad">CAVEAT</span>Balanced lagta hai, par banner scroll hone par ye bhi chala jaata hai (frame 1.2).</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="catbar" style="margin-top:0"><div class="catrow">
+          <span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span><span class="chip">🍔 Burgers</span>
+          <span class="b-live" style="position:absolute;left:auto;right:14px;top:50%;transform:translateY(-50%);background:#0A0A0A;color:#fff;border-color:#262626;padding:9px 12px">🔔</span>
+        </div></div>
+        <div class="list">
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        </div>
+      </div>
+    </div><div class="cap"><div class="t">3.4 — Sticky category bar me bell</div><div class="d"><span class="badge ok">REACHABLE</span>Scroll pe bhi rehta hai. Real impl me right padding + white fade chahiye (warna last chip ke upar aata hai).</div></div></div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">4</span>Aapka sticky navbar idea <span class="badge plan" style="margin-left:8px">PROPOSAL</span></h2>
+  <p class="secsub">Left: Call Waiter · Middle: Table number · Right: Track Orders. Concept accha hai — par <b>320px pe toot jaata hai</b> aur category bar ke saath do sticky bars ban jaate hain.</p>
+  <div class="grid">
+
+    <div class="demo"><div class="phone">
+      <div class="navbar">
+        <span class="nv-dark">🔔 Call Waiter</span>
+        <span class="table-chip">🍽️ Table 5</span>
+        <span class="nv-amber">📋 Track Orders</span>
+      </div>
+      <div class="banner" style="height:150px"></div>
+      <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span><span class="chip">🍔 Burgers</span></div></div>
+      <div class="list">
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        <div class="item"><div class="info"><h3><span class="veg nv">●</span>Chicken Dam Biryani</h3><div class="price">₹120.00</div></div><div class="thumb"></div></div>
+      </div>
+    </div><div class="cap"><div class="t">4.1 — Full labels @375px</div><div class="d"><span class="badge bad">TIGHT</span>Chahiye 363px, mila 367px → sirf <b>4px slack</b>. Kisi bhi bade label pe tootega.</div></div></div>
+
+    <div class="demo"><div class="phone w320">
+      <div class="navbar overflow-demo">
+        <span class="nv-dark">🔔 Call Waiter</span>
+        <span class="table-chip">🍽️ Table 5</span>
+        <span class="nv-amber">📋 Track Orders</span>
+      </div>
+      <div class="banner" style="height:150px"></div>
+      <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+      <div class="list">
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+      </div>
+    </div><div class="cap"><div class="t">4.2 — Full labels @320px · BROKEN</div><div class="d"><span class="badge bad">OVERFLOW</span>Chahiye 363px, mila 312px → "Track Orders" katt gaya aur page horizontally scroll karta hai. Ye live bhi reproduce hua.</div></div></div>
+
+    <div class="demo"><div class="phone w320">
+      <div class="navbar">
+        <span class="nv-dark">🔔 Waiter</span>
+        <span class="table-chip">Table 5</span>
+        <span class="nv-amber">📋 Orders</span>
+      </div>
+      <div class="banner" style="height:150px"></div>
+      <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+    </div><div class="cap"><div class="t">4.3 — Compact labels @320px · FIXED</div><div class="d"><span class="badge ok">FITS</span>Chahiye 280px, mila 312px ✓. Icons + ek word — yahi recommend karta hoon.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="navbar">
+        <span class="nv-dark">🔔 Waiter</span>
+        <span class="table-chip">Table 5</span>
+        <span class="nv-amber">📋 Orders</span>
+      </div>
+      <div class="catbar" style="margin-top:0;position:sticky;top:0;box-shadow:0 2px 8px rgba(0,0,0,.07)">
+        <div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span><span class="chip">🍔 Burgers</span></div>
+      </div>
+      <div class="list">
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        <div class="item"><div class="info"><h3><span class="veg nv">●</span>Chicken Dam Biryani</h3><div class="price">₹120.00</div></div><div class="thumb"></div></div>
+      </div>
+    </div><div class="cap"><div class="t">4.4 — Scroll karte waqt (dono sticky)</div><div class="d"><span class="badge bad">SPACE</span>Navbar 54px + category bar ~50px = <b>~104px</b> = 812px screen ka ~13%. Navbar ko scroll-down pe hide karna ya merge karna better.</div></div></div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">5</span>Naye ideas (extra variants) <span class="badge plan" style="margin-left:8px">PROPOSAL</span></h2>
+  <p class="secsub">Pichhle demos se alag — behaviour aur edge cases pe focus: spam rokna, order ke <b>baad</b> ka access, takeaway case, aur do floating elements ke bajaye ek hi bar.</p>
+  <div class="grid">
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+        <div class="list">
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        </div>
+        <div class="fab" style="bottom:16px;background:#065F46;border-color:#047857;color:#D1FAE5">✓ Waiter notified · Table 5</div>
+      </div>
+    </div><div class="cap"><div class="t">5.1 — "Call sent" + cooldown state</div><div class="d">Tap ke baad button green + ~60s disable. Spam rokne ke liye zaroori — warna ek customer 20 baar tap karega aur kitchen flood ho jaayegi.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div style="background:#fff;border-bottom:1px solid #F3F4F6;padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <span style="width:36px;height:36px;border-radius:99px;background:#F4F4F5;display:flex;align-items:center;justify-content:center;font-size:16px">←</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">Order #ORD2481</div>
+          <div style="font-size:12px;font-weight:700;color:#6B6B6B">Babu Mosai</div>
+        </div>
+        <span style="font-size:14px;color:#6B6B6B">⟳</span>
+      </div>
+      <div class="body" style="padding:16px">
+        <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:22px;padding:26px;text-align:center">
+          <div style="font-size:34px">👨‍🍳</div>
+          <div style="font-size:17px;font-weight:800;color:#065F46;margin-top:8px">Preparing your food</div>
+          <div style="font-size:12.5px;color:#047857;margin-top:4px">Table 5 · ~15 min</div>
+        </div>
+        <div class="list" style="padding:16px 0 0">
+          <div class="item"><div class="info"><h3>1× Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+        </div>
+        <div class="fab" style="bottom:16px">🔔 Call Waiter</div>
+      </div>
+    </div><div class="cap"><div class="t">5.2 — Tracking page pe Call Waiter</div><div class="d">Order dene ke <b>baad</b> hi sabse zyada zaroorat padti hai (paani, extra plate). Isliye tracking page ko second spot recommend karta hoon.</div></div></div>
+
+    <div class="demo"><div class="phone w320">
+      <div class="navbar">
+        <span class="nv-dark">🔔 Waiter</span>
+        <span style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:108px">Babu Mosai</span>
+        <span class="nv-amber">📋 Orders</span>
+      </div>
+      <div class="banner" style="height:150px"></div>
+      <div class="catbar" style="margin-top:0"><div class="catrow"><span class="chip on">🔥 Top Picks</span><span class="chip">🍽️ Chowmein</span></div></div>
+      <div class="list">
+        <div class="item"><div class="info"><h3><span class="veg">●</span>Burger</h3><div class="price">₹100.00</div></div><div class="thumb b"></div></div>
+      </div>
+    </div><div class="cap"><div class="t">5.3 — Takeaway: beech me restaurant ka naam</div><div class="d">Table number na hone par (takeaway/parcel) beech ka slot khaali nahi lagega — naam dikhega, aur 320px pe bhi fit.</div></div></div>
+
+    <div class="demo"><div class="phone">
+      <div class="banner" style="height:120px"></div>
+      <div class="body">
+        <div class="list">
+          <div class="item"><div class="info"><h3><span class="veg">●</span>Cheese Pizza</h3><div class="price">₹200.00</div></div><div class="thumb c"></div></div>
+          <div class="item"><div class="info"><h3><span class="veg nv">●</span>Chicken Chowmein</h3><div class="price">₹80.00</div></div><div class="thumb b"></div></div>
+        </div>
+        <div class="cartbar" style="padding:12px">
+          <span style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:11px 14px;font-size:12.5px;font-weight:800">🔔 Waiter</span>
+          <span style="display:flex;align-items:center;gap:6px;background:#F59E0B;border-radius:12px;padding:11px 14px;font-size:12.5px;font-weight:800">₹80.00 · View Order ›</span>
+        </div>
+      </div>
+    </div><div class="cap"><div class="t">5.4 — Ek hi bottom bar (dono actions)</div><div class="d">Do alag floating elements ke bajaye ek hi bar: left Waiter, right cart. Stacking/overlap ka jhagda khatam.</div></div></div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 class="sec"><span class="num">6</span>Measured numbers (live se, guess nahi)</h2>
+  <table>
+    <tr><th>Test</th><th>Available</th><th>Needed</th><th>Result</th></tr>
+    <tr><td>Naam ≤14 chars → 24px, 1 line</td><td class="mono">213px</td><td class="mono">150px</td><td class="yes">fits ✓</td></tr>
+    <tr><td>Naam 24 chars → 18px, 1 line</td><td class="mono">213px</td><td class="mono">206px</td><td class="yes">fits ✓</td></tr>
+    <tr><td>Naam 45 chars → 15px, 2 lines</td><td class="mono">213px</td><td class="mono">189px/line</td><td class="yes">fits ✓</td></tr>
+    <tr><td>Naam 57 chars → 14px</td><td class="mono">213px</td><td class="mono">3 lines</td><td class="yes">2 pe clamp ✓</td></tr>
+    <tr><td>Page overflow — pehle (32px fixed)</td><td class="mono">375px</td><td class="mono">958px</td><td class="no">horizontal scroll ✕</td></tr>
+    <tr><td>Page overflow — ab</td><td class="mono">375px</td><td class="mono">367px</td><td class="yes">no overflow ✓</td></tr>
+    <tr><td>Navbar full labels @375</td><td class="mono">367px</td><td class="mono">363px</td><td class="yes">fits, 4px slack</td></tr>
+    <tr><td>Navbar full labels @320</td><td class="mono">312px</td><td class="mono">363px</td><td class="no">overflow ✕</td></tr>
+    <tr><td>Navbar compact labels @320</td><td class="mono">312px</td><td class="mono">280px</td><td class="yes">fits ✓</td></tr>
+  </table>
+
+  <div class="callout" style="margin-top:24px">
+    <b>Yaad rakhne wali baat:</b> "Call Waiter" ko actually kaam karne ke liye backend chahiye —
+    <code>waiter_calls</code> table + anon-callable RPC + spam throttle + restaurant dashboard pe realtime alert.
+    Tab tak ye sirf UI hai. App me is waqt koi notification delivery channel nahi hai.
+  </div>
+
+</div>
+</body>
+</html>

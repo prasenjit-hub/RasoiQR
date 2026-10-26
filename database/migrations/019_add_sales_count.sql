@@ -1,3 +1,7 @@
+-- ⚠️ HISTORICAL / SUPERSEDED — do NOT run this file.
+-- Same customer_create_order slot as 011/020; the deployed definition is in
+-- 026_trial_expiry_enforcement.sql. Kept only as a record of the sales_count change.
+--
 -- 019_add_sales_count.sql
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS sales_count INTEGER NOT NULL DEFAULT 0;
 

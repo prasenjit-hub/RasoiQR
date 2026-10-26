@@ -26,7 +26,7 @@ BEGIN
   RETURNING id INTO v_restaurant_id;
   
   INSERT INTO users (id, restaurant_id, email, password_hash, temp_password, role)
-  VALUES (COALESCE(p_auth_user_id, uuid_generate_v4()), v_restaurant_id, p_email, p_password_hash, TRUE, 'owner')
+  VALUES (COALESCE(p_auth_user_id, gen_random_uuid()), v_restaurant_id, p_email, p_password_hash, TRUE, 'owner')
   RETURNING id INTO v_user_id;
 
   UPDATE registration_requests 

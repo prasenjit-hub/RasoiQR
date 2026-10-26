@@ -350,6 +350,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
     category: "",
     base_price: "",
     image_url: "",
+    is_veg: true,
     is_available: true,
     sizes: [] as { name: string; price: number }[],
     addons: [] as { name: string; price: number }[],
@@ -366,6 +367,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
         category: item.category || "",
         base_price: item.base_price.toString(),
         image_url: item.image_url || "",
+        is_veg: item.is_veg ?? true,
         is_available: item.is_available,
         sizes: item.sizes || [],
         addons: item.addons || [],
@@ -377,6 +379,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
         category: "",
         base_price: "",
         image_url: "",
+        is_veg: true,
         is_available: true,
         sizes: [],
         addons: [],
@@ -404,6 +407,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
       restaurant_id: restaurant.id,
       name: formData.name,
       base_price: parseFloat(formData.base_price),
+      is_veg: formData.is_veg,
       is_available: formData.is_available,
       sizes: formData.sizes,
       addons: formData.addons,
@@ -517,6 +521,54 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             placeholder="0.00"
             required
           />
+        </div>
+
+        {/* Food Type (Veg / Non-Veg) */}
+        <div>
+          <label className="label">Food Type</label>
+          <div className="grid grid-cols-2 gap-3">
+            <label
+              className={`flex items-center justify-center gap-2.5 min-h-[44px] px-4 py-2.5 rounded-lg border-2 cursor-pointer transition-all duration-200 focus-within:ring-2 focus-within:ring-accent ${
+                formData.is_veg
+                  ? "border-green-600 bg-green-50"
+                  : "border-border hover:border-text-secondary/40"
+              }`}
+            >
+              <input
+                type="radio"
+                name="food-type"
+                value="veg"
+                checked={formData.is_veg}
+                onChange={() => setFormData({ ...formData, is_veg: true })}
+                className="sr-only"
+              />
+              <span className="w-4 h-4 rounded-full border-2 border-green-600 flex items-center justify-center flex-shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
+              </span>
+              <span className="text-sm font-medium text-text">Veg</span>
+            </label>
+
+            <label
+              className={`flex items-center justify-center gap-2.5 min-h-[44px] px-4 py-2.5 rounded-lg border-2 cursor-pointer transition-all duration-200 focus-within:ring-2 focus-within:ring-accent ${
+                !formData.is_veg
+                  ? "border-red-600 bg-red-50"
+                  : "border-border hover:border-text-secondary/40"
+              }`}
+            >
+              <input
+                type="radio"
+                name="food-type"
+                value="non-veg"
+                checked={!formData.is_veg}
+                onChange={() => setFormData({ ...formData, is_veg: false })}
+                className="sr-only"
+              />
+              <span className="w-4 h-4 rounded-full border-2 border-red-600 flex items-center justify-center flex-shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
+              </span>
+              <span className="text-sm font-medium text-text">Non-Veg</span>
+            </label>
+          </div>
         </div>
 
         <ImageUpload

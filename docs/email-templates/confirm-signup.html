@@ -1,0 +1,163 @@
+<!--
+  RasoiQR — Supabase "Confirm signup" email template (OTP only, no links).
+
+  Paste into: Supabase Dashboard -> Authentication -> Email Templates ->
+  "Confirm signup". Signup confirmation and password recovery are SEPARATE
+  templates; editing one does not change the other. This file is the sibling of
+  reset-password.html — keep the two visually identical so owners recognise the
+  mail instantly in both flows.
+
+  This template must carry the Token variable and must NOT contain the
+  ConfirmationURL variable. The app has no route that reads a recovery or
+  confirmation session out of the URL hash, so a link here would dead-end.
+  (Email confirmation is currently off, so new owners are activated on signup
+  and rarely see this mail — it still matters for invites and for any future
+  switch to confirmation.)
+
+  NOTE: template variables are deliberately NOT written with their curly braces
+  anywhere in this comment. Supabase renders this file as a Go template, and Go
+  evaluates every action in the document — including actions inside an HTML
+  comment. A ConfirmationURL in this comment would be rendered into a hidden
+  verify URL in every email, and link-prefetching mail scanners (Gmail,
+  Defender Safe Links) would follow it and burn the token before the owner ever
+  sees the code. Keep both variable names brace-free in comments.
+
+  ---------------------------------------------------------------------------
+  PROJECT SETTINGS THIS COPY DEPENDS ON
+  ---------------------------------------------------------------------------
+  Keep these in sync or the mail tells the owner something untrue:
+
+    mailer_otp_length = 6    how many digits the code below has.
+                             GoTrue accepts only 6-10 and silently falls back
+                             to 6 outside that range, so 4 is not reachable.
+    mailer_otp_exp    = 600  seconds a code stays valid (600 = 10 minutes).
+                             Hosted default is 3600 (1 hour). A larger window
+                             is discouraged; it applies to recovery, signup
+                             confirmation, magic links and invites alike.
+
+  Both live in the Dashboard under Authentication -> Sign In / Providers ->
+  Auth Providers -> Email. scripts/apply-auth-email.mjs applies and verifies
+  both of them together with the two templates.
+
+  ---------------------------------------------------------------------------
+  WHEN rasoiqr.com IS LIVE — swap checklist
+  ---------------------------------------------------------------------------
+  Today the mail goes out on the agency domain because rasoiqr.com is not owned
+  yet. When it is registered and verified, change ALL of these in one pass:
+
+    1. Resend   -> Domains -> add rasoiqr.com, publish the SPF/DKIM records it
+                   generates, wait for status Verified.
+    2. Supabase -> Authentication -> SMTP Settings -> Sender email (must be an
+                   address on the Resend-verified domain) and Sender name.
+    3. Both templates -> the support address in the help box below.
+    4. The app  -> PrivacyPolicyPage.tsx and TermsOfServicePage.tsx both print
+                   the Grievance Officer address.
+    5. Resend   -> leave the agency domain sending for a few weeks, then retire.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your RasoiQR verification code</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F8FAFC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #F8FAFC; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <!-- Main Card Container -->
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 520px; background-color: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+
+          <!-- Top Brand Accent Line -->
+          <tr>
+            <td style="height: 6px; background-color: #EA580C;"></td>
+          </tr>
+
+          <!-- Header / Branding -->
+          <tr>
+            <td style="padding: 32px 32px 16px 32px; text-align: left;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td>
+                    <span style="font-size: 24px; font-weight: 800; color: #EA580C; letter-spacing: -0.5px;">Rasoi<span style="color: #1E293B;">QR</span></span>
+                    <p style="margin: 4px 0 0 0; color: #64748B; font-size: 13px; font-weight: 500;">Smart QR Menus for Restaurants</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <div style="border-bottom: 1px solid #F1F5F9;"></div>
+            </td>
+          </tr>
+
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 28px 32px 32px 32px;">
+              <h1 style="margin: 0 0 12px 0; color: #0F172A; font-size: 20px; font-weight: 700; line-height: 1.3;">
+                Verify your email ✉️
+              </h1>
+              <p style="margin: 0 0 24px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+                Thanks for signing up for RasoiQR! Enter the code below in the website to verify your email and activate your account.
+              </p>
+
+              <!-- OTP CODE DISPLAY -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 24px 0;">
+                <tr>
+                  <td style="background-color: #FFF7ED; border: 2px dashed #EA580C; border-radius: 12px; padding: 24px; text-align: center;">
+                    <p style="margin: 0 0 8px 0; color: #9A3412; font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">
+                      Your verification code
+                    </p>
+                    <p style="margin: 0; color: #EA580C; font-size: 36px; font-weight: 800; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+                      {{ .Token }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0 0 20px 0; color: #64748B; font-size: 13px; line-height: 1.5;">
+                ⏱️ This code expires in 10 minutes and can be used once. If you didn't create an account with RasoiQR, you can safely ignore this email.
+              </p>
+
+              <!-- Help Box -->
+              <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-top: 24px;">
+                <p style="margin: 0 0 6px 0; color: #64748B; font-size: 12px; font-weight: 600;">
+                  Didn't get the code?
+                </p>
+                <p style="margin: 0 0 6px 0; color: #64748B; font-size: 12px; line-height: 1.5;">
+                  Check your spam folder, or request a new code in the app. If you still need help, email us at <a href="mailto:hello@tournxwebstudio.com" style="color: #EA580C; text-decoration: none; font-weight: 600;">hello@tournxwebstudio.com</a>
+                </p>
+                <p style="margin: 0; color: #94A3B8; font-size: 12px; line-height: 1.5;">
+                  Never share this code with anyone. RasoiQR support will never ask you for it.
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F8FAFC; padding: 24px 32px; border-top: 1px solid #F1F5F9; text-align: center;">
+              <p style="margin: 0 0 4px 0; color: #1E293B; font-size: 13px; font-weight: 700;">
+                RasoiQR
+              </p>
+              <p style="margin: 0 0 8px 0; color: #64748B; font-size: 12px; font-weight: 500;">
+                Smart QR Menus for Restaurants
+              </p>
+              <p style="margin: 0 0 8px 0; color: #94A3B8; font-size: 12px;">
+                Built with ❤️ in Tripura, India
+              </p>
+              <p style="margin: 0; color: #94A3B8; font-size: 11px;">
+                © 2026 RasoiQR. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -9,6 +9,9 @@ export default {
         text: "#0A0A0A",
         "text-secondary": "#6B6B6B",
         accent: "#000000",
+        // Brand orange — used sparingly (OTP focus states). The app accent
+        // stays black; this matches the email-template colour.
+        brand: "#EA580C",
         "accent-secondary": "#6366F1",
         border: "#E5E5E5",
         success: "#10B981",
@@ -41,6 +44,21 @@ export default {
       },
       transitionTimingFunction: {
         smooth: "cubic-bezier(0.4, 0, 0.2, 1)",
+      },
+      // 👋 Idle nudge for the Crave-box CTA — paired with `useIdleShake`
+      // (700ms must stay in step with SHAKE_MS in src/utils/useIdleShake.ts).
+      keyframes: {
+        "nudge-shake": {
+          "0%, 100%": { transform: "translateX(0)" },
+          "20%": { transform: "translateX(-6px)" },
+          "40%": { transform: "translateX(6px)" },
+          "60%": { transform: "translateX(-4px)" },
+          "80%": { transform: "translateX(4px)" },
+        },
+      },
+      animation: {
+        "nudge-shake":
+          "nudge-shake 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97) both",
       },
       transitionDuration: {
         200: "200ms",

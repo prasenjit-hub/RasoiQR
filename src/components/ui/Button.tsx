@@ -2,7 +2,7 @@ import React, { type ButtonHTMLAttributes } from "react";
 import { Loader2 } from "lucide-react";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger" | "brand";
   size?: "sm" | "md" | "lg";
   loading?: boolean;
   icon?: React.ReactNode;
@@ -31,6 +31,9 @@ export const Button: React.FC<ButtonProps> = ({
       "border-2 border-accent text-accent hover:bg-accent hover:text-white focus:ring-accent",
     ghost: "text-text hover:bg-bg-subtle",
     danger: "bg-error text-white hover:bg-error/90 focus:ring-error",
+    // Brand orange (migration 031) — reserved for the white-glove handover
+    // action so it stands apart from the black accent and red "Block".
+    brand: "bg-brand text-white hover:bg-brand/90 focus:ring-brand",
   };
 
   const sizes = {

@@ -14,6 +14,7 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../config/supabase";
 import type { Restaurant } from "../config/supabase";
+import { needsForcedPasswordChange } from "../utils/authGuards";
 
 /**
  * RasoiQR — Production-grade AuthContext (Phase 2.7)
@@ -50,7 +51,12 @@ export interface AdminProfile {
 export type RestaurantProfile = Restaurant;
 
 export type SignInResult =
-  | { success: true; role: "admin" | "restaurant" }
+  | {
+      success: true;
+      role: "admin" | "restaurant";
+      /** Migration 031: setup is complete but the owner still has the temp password. */
+      needsPasswordChange: boolean;
+    }
   | { success: false; error: string };
 
 interface AuthContextValue {
@@ -60,7 +66,6 @@ interface AuthContextValue {
   ready: boolean;
   signIn: (email: string, password: string) => Promise<SignInResult>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string, redirectToPath: string) => Promise<{ error: string | null }>;
   /** Manually re-run the auth check. Useful for tab-focus refresh. */
   refresh: () => Promise<void>;
 }
@@ -72,7 +77,6 @@ const AuthContext = createContext<AuthContextValue>({
   ready: false,
   signIn: async () => ({ success: false, error: "AuthProvider not mounted" }),
   signOut: async () => {},
-  resetPassword: async () => ({ error: "AuthProvider not mounted" }),
   refresh: async () => {},
 });
 
@@ -121,7 +125,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // signOut() here: that would destroy the session cookies and force
   // a re-login on any transient RPC failure.
   const loadProfile = useCallback(
-    async (authUser: User): Promise<"admin" | "restaurant" | null> => {
+    async (
+      authUser: User
+    ): Promise<{
+      role: "admin" | "restaurant";
+      needsPasswordChange: boolean;
+    } | null> => {
       if (profileFetchInFlight.current) {
         return null;
       }
@@ -143,7 +152,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setAdmin(adminRows[0]);
               setRestaurant(null);
             });
-            return "admin" as const;
+            return { role: "admin" as const, needsPasswordChange: false };
           }
           if (adminRows !== null) {
             adminConfirmedEmpty = true;
@@ -172,7 +181,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setRestaurant(restaurantArray[0]);
               setAdmin(null);
             });
-            return "restaurant" as const;
+            return {
+              role: "restaurant" as const,
+              // Migration 031: forced change only after the admin has marked
+              // setup complete (and the account still carries the temp
+              // password).
+              needsPasswordChange: needsForcedPasswordChange(
+                authUser,
+                restaurantArray[0]
+              ),
+            };
           }
           if (restaurantRows !== null) {
             restaurantConfirmedEmpty = true;
@@ -331,9 +349,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return { success: false, error: "Authentication failed (no session)" };
     }
 
-    const role = await loadProfile(data.session.user);
-    if (role === "admin" || role === "restaurant") {
-      return { success: true, role };
+    const profile = await loadProfile(data.session.user);
+    if (profile) {
+      return {
+        success: true,
+        role: profile.role,
+        needsPasswordChange: profile.needsPasswordChange,
+      };
     }
     return {
       success: false,
@@ -346,16 +368,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     safeSetState(clearAll);
   }
 
-  async function resetPassword(email: string, redirectToPath: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      email.toLowerCase().trim(),
-      {
-        redirectTo: `${window.location.origin}${redirectToPath}`,
-      }
-    );
-    return { error: error?.message ?? null };
-  }
-
   return (
     <AuthContext.Provider
       value={{
@@ -365,7 +377,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         ready,
         signIn,
         signOut,
-        resetPassword,
         refresh,
       }}
     >

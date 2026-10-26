@@ -1,3 +1,7 @@
+-- ⚠️ HISTORICAL / SUPERSEDED — do NOT run this file.
+-- Its copy of customer_create_order was never the deployed one (the live body
+-- matched 019's lineage). The deployed definition is in 026_trial_expiry_enforcement.sql.
+--
 -- Migration: Remove tax calculation from customer_create_order
 
 -- We drop the function first to avoid parameter name mismatch errors if the signature changed

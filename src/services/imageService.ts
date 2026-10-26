@@ -1,6 +1,15 @@
 import { supabase } from '../config/supabase';
 
-export const uploadImageToCloudinary = async (file: File): Promise<string> => {
+export const uploadImageToCloudinary = async (
+  file: File,
+  /**
+   * Longest edge the CDN keeps (Cloudinary `c_limit` never upscales).
+   * 800 is plenty for a 128px avatar or menu thumbnail, but a full-width
+   * menu banner is rendered 1000px+ wide on desktop — at 800 it goes soft,
+   * so `ImageUpload` asks for 1600 when the variant is "banner".
+   */
+  maxWidth = 800
+): Promise<string> => {
   const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dcnkg4pob';
   
   try {
@@ -41,7 +50,7 @@ export const uploadImageToCloudinary = async (file: File): Promise<string> => {
     const data = await response.json();
     
     // Automatically apply Cloudinary transformations for performance (WebP format, auto quality, resize)
-    const optimizedUrl = data.secure_url.replace('/upload/', '/upload/w_800,c_limit,f_auto,q_auto/');
+    const optimizedUrl = data.secure_url.replace('/upload/', `/upload/w_${maxWidth},c_limit,f_auto,q_auto/`);
     return optimizedUrl;
   } catch (error) {
     console.error('Cloudinary upload error:', error);

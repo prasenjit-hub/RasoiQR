@@ -1,5 +1,6 @@
 import React from "react";
 import { X } from "lucide-react";
+import { useBodyScrollLock } from "../../utils/useBodyScrollLock";
 
 interface ModalProps {
   isOpen: boolean;
@@ -18,6 +19,10 @@ export const Modal: React.FC<ModalProps> = ({
   size = "md",
   showCloseButton = true,
 }) => {
+  // 🔒 Freeze the page behind the modal. Hooks must run before the early
+  // return below, so this is called unconditionally.
+  useBodyScrollLock(isOpen);
+
   if (!isOpen) return null;
 
   const sizes = {

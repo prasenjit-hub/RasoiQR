@@ -5,6 +5,7 @@ import LandingPage from "./pages/public/LandingPage";
 import RegisterPage from "./pages/public/RegisterPage";
 import LoginPage from "./pages/public/LoginPage";
 import PublicResetPasswordPage from "./pages/public/ResetPasswordPage";
+import ChangePasswordPage from "./pages/auth/ChangePassword";
 import PrivacyPolicyPage from "./pages/public/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/public/TermsOfServicePage";
 
@@ -33,6 +34,8 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/reset-password" element={<PublicResetPasswordPage />} />
+        {/* Migration 031: forced password change after white-glove setup */}
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
 

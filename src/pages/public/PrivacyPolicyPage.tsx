@@ -77,7 +77,7 @@ const PrivacyPolicyPage: React.FC = () => {
 
             <h2 className="text-xl font-semibold text-text mt-8 mb-4">6. Contact Us</h2>
             <p className="mb-6">
-              If you have questions or comments about this notice, you may email our Grievance Officer at <a href="mailto:support@rasoiqr.com" className="text-accent underline">support@rasoiqr.com</a>.
+              If you have questions or comments about this notice, you may email our Grievance Officer at <a href={`mailto:${APP_CONFIG.supportEmail}`} className="text-accent underline">{APP_CONFIG.supportEmail}</a>.
             </p>
           </div>
         </div>

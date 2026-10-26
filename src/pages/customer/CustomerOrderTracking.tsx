@@ -171,9 +171,9 @@ const CustomerOrderTracking: React.FC = () => {
           >
             <ChevronLeft className="w-5 h-5 text-gray-700" />
           </Link>
-          <div className="flex-1">
-            <h1 className="font-extrabold text-lg text-gray-900 tracking-tight">Order #{order.order_number}</h1>
-            <p className="text-xs text-gray-500 font-semibold">{order.restaurant.name}</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-extrabold text-lg text-gray-900 tracking-tight truncate">Order #{order.order_number}</h1>
+            <p className="text-xs text-gray-500 font-semibold truncate">{order.restaurant.name}</p>
           </div>
           <button onClick={() => loadOrder()} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors">
             <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />

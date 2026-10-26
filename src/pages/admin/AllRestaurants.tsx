@@ -30,6 +30,7 @@ import {
 import type { Restaurant } from "../../config/supabase";
 import { formatDateTime } from "../../utils/helpers";
 import { APP_CONFIG } from "../../config/config";
+import SetupCompleteModal from "./components/SetupCompleteModal";
 
 const AllRestaurants: React.FC = () => {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -44,6 +45,8 @@ const AllRestaurants: React.FC = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  // Migration 031: white-glove handover modal target.
+  const [setupRestaurant, setSetupRestaurant] = useState<Restaurant | null>(null);
 
   // Real-time subscription
   useEffect(() => {
@@ -94,6 +97,10 @@ const AllRestaurants: React.FC = () => {
     setShowPlanModal(true);
   };
 
+  const handleMarkSetupComplete = (restaurant: Restaurant) => {
+    setSetupRestaurant(restaurant);
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "active":
@@ -106,6 +113,18 @@ const AllRestaurants: React.FC = () => {
         return <Badge variant="neutral">{status}</Badge>;
     }
   };
+
+  // Migration 031 — white-glove handover state.
+  const getSetupBadge = (complete: boolean) => (
+    <span className="inline-flex items-center space-x-1.5 text-xs font-medium text-text-secondary">
+      <span
+        className={`w-2 h-2 rounded-full ${
+          complete ? "bg-success" : "bg-warning"
+        }`}
+      />
+      <span>{complete ? "Setup Complete" : "Setup In Progress"}</span>
+    </span>
+  );
 
   const getPlanBadge = (plan: string) => {
     const planConfig = APP_CONFIG.plans[plan as keyof typeof APP_CONFIG.plans];
@@ -203,14 +222,15 @@ const AllRestaurants: React.FC = () => {
                 <div className="flex-1 space-y-3">
                   {/* Header */}
                   <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="text-lg font-bold text-text">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mb-1">
+                        <h3 className="text-lg font-bold text-text min-w-0 break-words">
                           {restaurant.name}
                         </h3>
                         {getStatusBadge(restaurant.status)}
                         {restaurant.subscription_plan &&
                           getPlanBadge(restaurant.subscription_plan)}
+                        {getSetupBadge(restaurant.setup_complete)}
                       </div>
                       <p className="text-sm text-text-secondary">
                         {restaurant.restaurant_type}
@@ -283,6 +303,17 @@ const AllRestaurants: React.FC = () => {
                   >
                     Edit Plan
                   </Button>
+                  {!restaurant.setup_complete && (
+                    <Button
+                      variant="brand"
+                      size="sm"
+                      fullWidth
+                      icon={<CheckCircle className="w-4 h-4" />}
+                      onClick={() => handleMarkSetupComplete(restaurant)}
+                    >
+                      Mark Setup Complete
+                    </Button>
+                  )}
                   <Button
                     variant={
                       restaurant.status === "blocked" ? "secondary" : "danger"
@@ -336,6 +367,13 @@ const AllRestaurants: React.FC = () => {
           setSelectedRestaurant(null);
         }}
       />
+
+      {/* Mark Setup Complete Modal (migration 031) */}
+      <SetupCompleteModal
+        isOpen={!!setupRestaurant}
+        restaurant={setupRestaurant}
+        onClose={() => setSetupRestaurant(null)}
+      />
     </div>
   );
 };
@@ -369,11 +407,11 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-xl font-bold text-text mb-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-xl font-bold text-text mb-2 break-words">
               {restaurant.name}
             </h3>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
               <Badge variant="neutral">{restaurant.restaurant_type}</Badge>
               {restaurant.subscription_plan && planConfig && (
                 <Badge variant="success">{planConfig.name}</Badge>
@@ -425,7 +463,7 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
             <div className="space-y-2 text-sm">
               <p className="text-text-secondary">
                 <strong className="text-text">Plan:</strong> {planConfig.name}{" "}
-                (${planConfig.price}/month)
+                (₹{planConfig.price}/month)
               </p>
               <p className="text-text-secondary">
                 <strong className="text-text">Features:</strong>{" "}
@@ -484,8 +522,18 @@ const BlockModal: React.FC<BlockModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  // Migration 029: an already-expired free trial cannot simply be reopened —
+  // the database needs an access window (max 60 days) or trg_trial_expiry
+  // would re-block the row.
+  const [accessDays, setAccessDays] = useState(7);
 
   const isBlocked = restaurant?.status === "blocked";
+  const trialExpired =
+    !!restaurant &&
+    restaurant.subscription_plan === "free_trial" &&
+    !!restaurant.trial_ends_at &&
+    new Date(restaurant.trial_ends_at).getTime() <= Date.now();
+  const needsAccessWindow = isBlocked && trialExpired;
 
   const handleToggle = async () => {
     if (!isBlocked && !reason.trim()) {
@@ -496,18 +544,25 @@ const BlockModal: React.FC<BlockModalProps> = ({
     if (!restaurant) return;
 
     setLoading(true);
-    const success = await toggleRestaurantStatus(
+    const accessUntil = needsAccessWindow
+      ? new Date(Date.now() + accessDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+    const result = await toggleRestaurantStatus(
       restaurant.id,
       isBlocked,
-      reason
+      reason,
+      accessUntil
     );
     setLoading(false);
 
-    if (success) {
+    if (result.success) {
       onClose();
       setReason("");
     } else {
-      setError(`Failed to ${isBlocked ? "unblock" : "block"} restaurant`);
+      setError(
+        result.message ||
+          `Failed to ${isBlocked ? "unblock" : "block"} restaurant`
+      );
     }
   };
 
@@ -566,6 +621,34 @@ const BlockModal: React.FC<BlockModalProps> = ({
           </div>
         )}
 
+        {needsAccessWindow && (
+          <div className="bg-bg-subtle border border-border rounded-lg p-3 space-y-2">
+            <p className="text-sm text-text-secondary">
+              This free trial has already ended. Choose how long to reopen{" "}
+              <strong className="text-text">{restaurant.name}</strong> — the
+              system blocks it again automatically when that window ends.
+            </p>
+            <Select
+              label="Reopen for"
+              value={String(accessDays)}
+              onChange={(e) => setAccessDays(Number(e.target.value))}
+              options={[1, 3, 7, 14, 30, 45, 60].map((d) => ({
+                value: String(d),
+                label: `${d} day${d > 1 ? "s" : ""}`,
+              }))}
+            />
+            <p className="text-xs text-text-secondary">
+              Access ends{" "}
+              {formatDateTime(
+                new Date(
+                  Date.now() + accessDays * 24 * 60 * 60 * 1000
+                ).toISOString()
+              )}{" "}
+              · 60 days maximum
+            </p>
+          </div>
+        )}
+
         <div className="flex gap-3">
           <Button type="button" variant="outline" onClick={onClose} fullWidth>
             Cancel
@@ -614,6 +697,60 @@ const InfoItem: React.FC<InfoItemProps> = ({
   );
 };
 
+// ---- Trial end-date helpers (audit P1-1) ----
+// The admin picks a calendar DATE; the database stores a timestamptz. We resolve
+// the picked day to 23:59:59 *local* time, so "ends 24 Oct" means the whole of
+// 24 Oct for an IST admin, then hand the RPC the UTC instant.
+const MS_PER_DAY = 86400000;
+const TRIAL_DEFAULT_DAYS = 14;
+// Mirrors the ceiling enforced by admin_update_subscription; the database is
+// still the authority — this only saves the admin a round-trip.
+const TRIAL_MAX_DAYS = 60;
+
+/** `Date` → `YYYY-MM-DD` in local time, the value an `<input type="date">` wants. */
+const toDateInputValue = (date: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+/** `YYYY-MM-DD` → ISO instant at the end of that local day; `null` if unparseable. */
+const endOfLocalDayIso = (dateOnly: string): string | null => {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!parts) return null;
+  const date = new Date(
+    Number(parts[1]),
+    Number(parts[2]) - 1,
+    Number(parts[3]),
+    23,
+    59,
+    59,
+    999
+  );
+  if (Number.isNaN(date.getTime())) return null;
+  // Reject a rolled-over date such as 2026-02-31.
+  if (toDateInputValue(date) !== dateOnly) return null;
+  return date.toISOString();
+};
+
+/**
+ * Last calendar day an admin may pick: the latest date whose end-of-local-day
+ * instant still sits inside the RPC's `now() + 60 days` ceiling. Using the raw
+ * `today + 60` date here would offer a day the database then rejects, because
+ * the picked day resolves to 23:59:59 and lands past the ceiling.
+ */
+const latestTrialDateInput = (): string => {
+  const now = new Date();
+  const cap = now.getTime() + TRIAL_MAX_DAYS * MS_PER_DAY;
+  const candidate = new Date(cap);
+  for (let i = 0; i <= TRIAL_MAX_DAYS; i++) {
+    const value = toDateInputValue(candidate);
+    const iso = endOfLocalDayIso(value);
+    if (iso && new Date(iso).getTime() <= cap) return value;
+    candidate.setDate(candidate.getDate() - 1);
+  }
+  return toDateInputValue(now);
+};
+
 // Plan Modal Component
 interface PlanModalProps {
   isOpen: boolean;
@@ -628,27 +765,78 @@ const PlanModal: React.FC<PlanModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>("free_trial");
+  const [trialEndsAt, setTrialEndsAt] = useState<string>("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (restaurant) {
-      setSelectedPlan(restaurant.subscription_plan || "free_trial");
-    }
+    if (!restaurant) return;
+
+    setSelectedPlan(restaurant.subscription_plan || "free_trial");
+    setError("");
+
+    // Prefill the date input: keep a trial that is still running, otherwise
+    // offer the default 14-day trial.
+    const existing = restaurant.trial_ends_at
+      ? new Date(restaurant.trial_ends_at).getTime()
+      : NaN;
+    const stillRunning = Number.isFinite(existing) && existing > Date.now();
+    setTrialEndsAt(
+      toDateInputValue(
+        stillRunning
+          ? new Date(existing)
+          : new Date(Date.now() + TRIAL_DEFAULT_DAYS * MS_PER_DAY)
+      )
+    );
   }, [restaurant]);
 
   const handleUpdate = async () => {
     if (!restaurant) return;
 
+    // Validate before touching the network so the admin sees the reason
+    // immediately. The database re-checks all of this (fail-closed).
+    let trialIso: string | null = null;
+    if (selectedPlan === "free_trial") {
+      if (!trialEndsAt) {
+        setError("Please choose the date this trial should end.");
+        return;
+      }
+      trialIso = endOfLocalDayIso(trialEndsAt);
+      if (!trialIso) {
+        setError("That trial end date isn't valid. Please pick it again.");
+        return;
+      }
+      const remaining = new Date(trialIso).getTime() - Date.now();
+      if (remaining <= 0) {
+        setError("The trial end date must be in the future.");
+        return;
+      }
+      if (remaining > TRIAL_MAX_DAYS * MS_PER_DAY) {
+        setError(
+          `A trial can run at most ${TRIAL_MAX_DAYS} days, so that date is too far ahead.`
+        );
+        return;
+      }
+    }
+
+    setError("");
     setLoading(true);
-    // When manually upgrading a blocked/trial account, typical flow is to activate them
+    // When manually upgrading a blocked/trial account, typical flow is to activate them.
+    // Migration 029 (audit P0-3): assigning free_trial no longer deactivates the
+    // restaurant — the DB keeps the existing trial date, or starts a fresh
+    // 14-day trial when the old one is missing or already over.
     const newStatus = selectedPlan === "free_trial" ? "trial" : "active";
-    const success = await updateSubscriptionPlan(restaurant.id, selectedPlan, newStatus);
+    const result = await updateSubscriptionPlan(
+      restaurant.id,
+      selectedPlan,
+      newStatus,
+      trialIso
+    );
     setLoading(false);
 
-    if (success) {
+    if (result.success) {
       onClose();
     } else {
-      setError("Failed to update subscription plan.");
+      setError(result.message || "Failed to update subscription plan.");
     }
   };
 
@@ -679,13 +867,41 @@ const PlanModal: React.FC<PlanModalProps> = ({
           <Select
             label="Subscription Plan"
             value={selectedPlan}
-            onChange={(e) => setSelectedPlan(e.target.value)}
+            onChange={(e) => {
+              setSelectedPlan(e.target.value);
+              setError("");
+            }}
             options={Object.entries(APP_CONFIG.plans).map(([key, plan]) => ({
               value: key,
-              label: `${plan.name} ($${plan.price}/mo)`,
+              label: `${plan.name} (₹${plan.price}/mo)`,
             }))}
           />
         </div>
+
+        {selectedPlan === "free_trial" && (
+          <div className="bg-bg-subtle border border-border rounded-lg p-3 space-y-2">
+            <Input
+              type="date"
+              label="Trial ends on"
+              value={trialEndsAt}
+              min={toDateInputValue(new Date())}
+              max={latestTrialDateInput()}
+              onChange={(e) => {
+                setTrialEndsAt(e.target.value);
+                setError("");
+              }}
+              icon={<Calendar className="w-4 h-4" />}
+              required
+            />
+            <p className="text-xs text-text-secondary">
+              Choose when this restaurant's free trial ends. It defaults to{" "}
+              {TRIAL_DEFAULT_DAYS} days from today and the system blocks the
+              account automatically once the date passes. You can pick as far
+              ahead as {latestTrialDateInput()}, roughly{" "}
+              {TRIAL_MAX_DAYS} days from now.
+            </p>
+          </div>
+        )}
 
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="outline" onClick={onClose} fullWidth>

@@ -7,9 +7,25 @@ export const SUPABASE_URL =
 export const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
 
+/**
+ * Fallback cover for the customer menu when a restaurant has not uploaded a
+ * banner (`restaurants.banner_url`, migration 035).
+ *
+ * Single source of truth on purpose: the owner's "Menu banner" preview renders
+ * this same photo, so the preview can never promise a cover the customer does
+ * not actually get.
+ */
+export const DEFAULT_MENU_BANNER_URL =
+  "https://images.unsplash.com/photo-1543353071-10c8ba85a904?auto=format&fit=crop&q=80&w=1200";
+
 // Application Configuration
 export const APP_CONFIG = {
   appName: "RasoiQR",
+
+  // Where support mail goes — one place, so the login footer, the legal pages
+  // and the blocked-account upgrade button can never drift apart. Interim agency
+  // address until a rasoiqr.com mailbox exists.
+  supportEmail: "hello@tournxwebstudio.com",
   defaultCurrency: "₹",
   orderPrefix: "ORD",
 

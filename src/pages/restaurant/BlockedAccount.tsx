@@ -1,15 +1,24 @@
 import { useAuth } from "../../contexts/AuthContext";
 import { Button, Card } from "../../components/ui";
 import { AlertTriangle, Clock } from "lucide-react";
+import { getBillingStatus } from "../../utils/subscription";
+import { APP_CONFIG } from "../../config/config";
 
 export const BlockedAccount = () => {
   const { signOut, user, restaurant } = useAuth();
+  const status = getBillingStatus(restaurant);
+
+  // Keyed off state (`blocked_by`, migration 029) instead of `block_reason`
+  // prose, so any admin wording still routes to the right copy (audit P2-2).
+  const isTrialExpired = status.blockedBy === "system";
+  const title = status.title || "Account unavailable";
+  const message =
+    status.message ||
+    "This account cannot reach the dashboard right now. Please contact support.";
 
   const handleSignOut = async () => {
     await signOut();
   };
-
-  const isTrialExpired = restaurant?.block_reason?.toLowerCase().includes("trial expired");
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-subtle px-4">
@@ -24,9 +33,7 @@ export const BlockedAccount = () => {
           </div>
         </div>
         
-        <h1 className="text-2xl font-bold text-text-primary mb-3">
-          {isTrialExpired ? "Trial Expired" : "Account Suspended"}
-        </h1>
+        <h1 className="text-2xl font-bold text-text-primary mb-3">{title}</h1>
         
         {user?.email && (
           <p className="text-text-secondary mb-4">
@@ -45,19 +52,14 @@ export const BlockedAccount = () => {
           )}
         </div>
         
-        <p className="text-text-secondary mb-6 text-sm">
-          {isTrialExpired 
-            ? "Your 14-day free trial has ended. To restore your restaurant services and access your dashboard, please upgrade your subscription."
-            : "Your restaurant's access to the platform has been temporarily blocked by an administrator. Please contact support to resolve this issue."
-          }
-        </p>
+        <p className="text-text-secondary mb-6 text-sm">{message}</p>
 
         <div className="flex gap-3 justify-center">
           <Button onClick={handleSignOut} variant="outline">
             Sign Out
           </Button>
           {isTrialExpired && (
-            <a href="mailto:support@example.com?subject=Upgrade%20Subscription">
+            <a href={`mailto:${APP_CONFIG.supportEmail}?subject=Upgrade%20Subscription`}>
               <Button variant="primary">
                 Upgrade Now
               </Button>

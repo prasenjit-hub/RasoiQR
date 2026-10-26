@@ -77,7 +77,7 @@ const TermsOfServicePage: React.FC = () => {
 
             <h2 className="text-xl font-semibold text-text mt-8 mb-4">7. Contact Us</h2>
             <p className="mb-6">
-              In order to resolve a complaint regarding the Site or to receive further information regarding use of the Site, please contact us at: <a href="mailto:support@rasoiqr.com" className="text-accent underline">support@rasoiqr.com</a>.
+              In order to resolve a complaint regarding the Site or to receive further information regarding use of the Site, please contact us at: <a href={`mailto:${APP_CONFIG.supportEmail}`} className="text-accent underline">{APP_CONFIG.supportEmail}</a>.
             </p>
           </div>
         </div>
