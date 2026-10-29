@@ -74,8 +74,8 @@ src/
   components/ui/               # re-exported via index.ts
 
 database/
-  setup.sql                    # run-once comprehensive DB setup (tables + hardening + RPCs)
-  migrations/                  # incremental SQL migrations (000-034; run in order)
+  setup.sql                    # ⛔ RETIRED — guarded, body commented out (see below)
+  migrations/                  # incremental SQL migrations (000-049; run in order)
   scripts/
     create-admin.mjs           # bootstrap first admin user (uses .env.admin)
     smoke-test.mjs             # integration test (4/4 expected)
@@ -90,9 +90,13 @@ database/
 
 ### Run-from-scratch
 
-`database/setup.sql` is the single file that creates everything: tables, RPCs, RLS policies, triggers, indexes, realtime, the production privilege/search_path hardening (023/025/026) and the migration-tracking table. Every database change needs **three records**, and all three are written by hand — which is exactly why they drift: (1) a numbered file in `database/migrations/`, (2) a `supabase_migrations.schema_migrations` row in the live database, (3) a row in the table below. A migration file must end with its own ledger `INSERT` (032 and 033 show the pattern) — 033 originally shipped without one, so the live database never recorded it and nothing flagged the gap; that row is now present and 033 carries its own `INSERT ... ON CONFLICT DO NOTHING`. `node database/scripts/check-migrations.mjs` verifies (1) and (3) offline and prints the query for (2); run it before calling any database change done.
+**There is no run-from-scratch file. The migrations *are* the from-scratch path.** `database/migrations/000 … 049` applied in order is the only supported way to build the schema; the live database was built that way. Every database change needs **three records**, and all three are written by hand — which is exactly why they drift: (1) a numbered file in `database/migrations/`, (2) a `supabase_migrations.schema_migrations` row in the live database, (3) a row in the migration table below. A migration file must end with its own ledger `INSERT` (032 and 033 show the pattern) — 033 originally shipped without one, so the live database never recorded it and nothing flagged the gap; that row is now present and 033 carries its own `INSERT ... ON CONFLICT DO NOTHING`. `node database/scripts/check-migrations.mjs` verifies (1) and (3) offline and prints the query for (2); run it before calling any database change done.
 
-⚠️ **`setup.sql` is reconciled through 032 only.** It still declares `transition_order_status` as SECURITY INVOKER, never revokes UPDATE on `orders`, and still contains the blanket `GRANT ... ON ALL TABLES ... TO authenticated` that hands out UPDATE on `restaurants` — so a from-scratch install reopens the holes that 033 and 034 close. Until that file is reconciled, treat `database/migrations/` as the truth and do not build a new environment from `setup.sql` alone. (034's trigger still blocks the *columns* a client must never write even in that scenario; the grants are what a re-run must fix.)
+⛔ **`setup.sql` is RETIRED — do not run it, and do not "fix" it.** It was reconciled through **032 only**, so running it on an empty database builds a 2026-10 schema that re-opens every hole 033–049 closed (writable `orders` and `restaurants`, missing `waiter_calls` / `restaurant_tables` / `get_menu_version` / the slug CHECK, plus the blanket `GRANT … ON ALL TABLES … TO authenticated`). It is now **defused rather than deleted**: a `DO $retired$ … RAISE EXCEPTION` guard sits at the top, and the entire original 1,400-line body is wrapped in a block comment, so even a runner that ignores errors (`psql` without `ON_ERROR_STOP`) finds nothing executable after the guard. The history stays readable, and no tool can build the old schema by accident.
+
+  - **To bring it back you must do all three:** reconcile 033–049 into the body, remove the guard *and* the surrounding block comment, and **test it on an empty project** — never on production. Until someone actually does that, `database/migrations/` is the truth and this file is reference material for the 2026-10-09 state of the database.
+  - The drift check still reports it as *behind* (`WARN E … does not build 033 … 049`). **That warning is expected and is not a problem** — the script parses raw text and cannot know the file is retired; leaving it visible is the point, since it is the only machine-readable signal that the two paths disagree.
+  - Direct consequences: [`database/README.md`](database/README.md) and [`LAUNCH_PLAN.md`](LAUNCH_PLAN.md) still tell you to run `setup.sql`; where they conflict with this section, this section wins. The admin-bootstrap script (`create-admin.mjs`) only needs the tables to exist — it does not care which path built them.
 
 ### Migrations (run in order, additive only)
 

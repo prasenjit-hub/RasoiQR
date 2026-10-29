@@ -1,3 +1,43 @@
+-- ══════════════════════════════════════════════════════════════════════════════
+-- ⚠️  RETIRED — DO NOT RUN THIS FILE
+-- ══════════════════════════════════════════════════════════════════════════════
+-- This file is reconciled through migration **032 only**. Running it against an
+-- empty database would silently build a 2026-10 schema that re-opens the holes
+-- 033–049 closed:
+--
+--   033  `orders` writable by `authenticated`   → price / status tampering
+--   034  `restaurants` writable by clients      → an owner self-assigns a plan
+--   036  `waiter_calls` table missing           → the Call Waiter button crashes
+--   037/038/049  no admin RPCs                 → dashboards have no real numbers
+--   045  `restaurant_tables` missing            → table QRs dead, no dine-in
+--   046  `get_menu_version` missing            → every guest re-downloads the menu
+--   047/048  no `normalize_slug` / slug CHECK   → the empty-slug bug returns
+--
+-- …plus a blanket `GRANT … ON ALL TABLES … TO authenticated` that was
+-- deliberately revoked by 030/033/034.
+--
+-- THE SUPPORTED PATH IS THE MIGRATIONS, IN ORDER:
+--   database/migrations/000 … 049     (see AGENTS.md → "Database schema & migrations")
+-- `database/migrations/` is the truth. This file is not.
+--
+-- WHY IT STILL EXISTS: it is kept as a reference for the state the live database
+-- was in on 2026-10-09. Everything below is COMMENTED OUT on purpose, so that no
+-- tool can execute it by accident — the guard raises first, and even a runner
+-- that ignores errors (psql without ON_ERROR_STOP) finds nothing executable
+-- after it.
+--
+-- TO REVIVE IT: reconcile 033–049 into the body, remove the guard below and
+-- the surrounding block comment, and TEST IT ON AN EMPTY PROJECT. Never on
+-- production.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+DO $retired$
+BEGIN
+  RAISE EXCEPTION 'database/setup.sql is RETIRED and is reconciled through migration 032 only. Running it would build an insecure schema (033-049 missing). Build the database from database/migrations/ in order instead — see AGENTS.md.';
+END
+$retired$;
+
+/* ═════════════════ ORIGINAL 2026-10-09 CONTENT — REFERENCE ONLY ═════════════════
 -- =====================================================
 -- COMPLETE DATABASE SETUP - Food Ordering SaaS
 -- Run this ONCE in Supabase SQL Editor
@@ -1425,3 +1465,5 @@ BEGIN
   RAISE NOTICE 'Next: Enable real-time in Supabase Dashboard > Database > Replication';
   RAISE NOTICE 'Next: NOTIFY pgrst, ''reload schema''; if PostgREST has schema cache issues';
 END $$;
+
+════════════════ END OF ORIGINAL CONTENT ════════════════ */
