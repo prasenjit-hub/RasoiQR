@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../../config/supabase";
 import {
   CheckCircle,
@@ -11,78 +11,124 @@ import {
   MapPin,
   RefreshCcw
 } from "lucide-react";
-import { formatCurrency } from "../../utils/helpers";
+import {
+  formatCurrency,
+  isTerminalOrderStatus,
+  tableCodeFromSearch,
+  withTableCode,
+} from "../../utils/helpers";
+import { usePollWhenVisible } from "../../utils/usePollWhenVisible";
+
+/** How often a live order's status is re-asked for while the guest watches it.
+ *  The kitchen taps a button; 10s is faster than anyone walks to the counter. */
+const TRACKING_POLL_MS = 10_000;
+
+/**
+ * The last fetched version of an order, kept OUTSIDE the component.
+ *
+ * Opening one order from the list unmounts it, so returning used to blank to a
+ * spinner for a row that was on screen a moment ago. A module-level snapshot
+ * paints it immediately and the fetch refreshes quietly behind it — which is
+ * also what makes the list's own back-and-forth feel instant.
+ *
+ * Per tab and in memory; the RPC remains the authority on every refresh.
+ */
+const orderSnapshots = new Map<string, unknown>();
 
 const CustomerOrderTracking: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [order, setOrder] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+
+  // 🪑 Carried through from the table QR (migration 045): without it, the way
+  // back to the menu made a dine-in guest a takeaway customer.
+  const [searchParams] = useSearchParams();
+  const tableCode = tableCodeFromSearch(searchParams);
+
+  const [order, setOrder] = useState<any>(() =>
+    id ? orderSnapshots.get(id) ?? null : null
+  );
+  // No cached row to show → this really is a first load, so block on it.
+  const [loading, setLoading] = useState(
+    () => !(id && orderSnapshots.has(id))
+  );
+  /** A background refresh in flight — spins the header button only. */
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!id) return;
-    loadOrder();
+  /**
+   * `silent` is a refresh of the order already on screen: it must not blank the
+   * page, and a hiccup must not replace a good order with "Order Not Found".
+   */
+  const loadOrder = useCallback(
+    async (silent = false) => {
+      if (!id) return;
 
-    // Subscribe to realtime updates on this specific order
-    const channel = supabase
-      .channel(`customer_order_${id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-          filter: `id=eq.${id}`,
-        },
-        (payload) => {
-          setOrder((current: any) => {
-            if (!current) return current;
-            return { ...current, ...payload.new };
-          });
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+
+      try {
+        const { data, error: rpcError } = await supabase.rpc(
+          "get_orders_for_tracking",
+          {
+            p_order_ids: [id],
+          }
+        );
+
+        if (rpcError) {
+          throw rpcError;
         }
-      )
-      .subscribe();
 
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [id]);
+        if (!data || (Array.isArray(data) && data.length === 0)) {
+          throw new Error("Order not found");
+        }
 
-  const loadOrder = async () => {
-    try {
-      const { data, error } = await supabase.rpc("get_orders_for_tracking", {
-        p_order_ids: [id],
-      });
-
-      if (error) {
-        throw error;
+        const row = Array.isArray(data) ? data[0] : data;
+        const orderData = {
+          ...row,
+          restaurant: {
+            name: row.restaurant_name,
+            slug: row.restaurant_slug,
+            logo_url: row.restaurant_logo_url,
+          },
+        };
+        delete (orderData as any).restaurant_name;
+        delete (orderData as any).restaurant_slug;
+        delete (orderData as any).restaurant_logo_url;
+        setOrder(orderData);
+        setError("");
+        // Remember it, so coming back to this order paints immediately.
+        orderSnapshots.set(id, orderData);
+      } catch (err: any) {
+        console.error(err);
+        if (!silent) {
+          setError(
+            "We couldn't track this order. It might not exist or the link is invalid."
+          );
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    },
+    [id]
+  );
 
-      if (!data || (Array.isArray(data) && data.length === 0)) {
-        throw new Error("Order not found");
-      }
+  useEffect(() => {
+    // Silent when the order is already on screen, so nothing blanks.
+    void loadOrder(Boolean(id && orderSnapshots.has(id)));
+  }, [loadOrder, id]);
 
-      const row = Array.isArray(data) ? data[0] : data;
-      const orderData = {
-        ...row,
-        restaurant: {
-          name: row.restaurant_name,
-          slug: row.restaurant_slug,
-          logo_url: row.restaurant_logo_url,
-        },
-      };
-      delete (orderData as any).restaurant_name;
-      delete (orderData as any).restaurant_slug;
-      delete (orderData as any).restaurant_logo_url;
-      setOrder(orderData);
-    } catch (err: any) {
-      console.error(err);
-      setError("We couldn't track this order. It might not exist or the link is invalid.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ⚡ Live status. The channel this page used to open could never fire: `anon`
+  // has no SELECT on `orders` (migration 033) and no policy grants one, so
+  // Realtime had nothing it was allowed to send — the guest only ever saw a
+  // change after tapping refresh. Polling the anon-callable RPC is the honest
+  // version of the same idea; it stops once the order cannot move again (see
+  // usePollWhenVisible for the foreground-only rules).
+  usePollWhenVisible(
+    () => loadOrder(true),
+    TRACKING_POLL_MS,
+    Boolean(order) && !isTerminalOrderStatus(order?.status)
+  );
 
   if (loading) {
     return (
@@ -166,7 +212,7 @@ const CustomerOrderTracking: React.FC = () => {
       <div className="bg-white px-4 py-4 sticky top-0 z-30 shadow-sm border-b border-gray-100">
         <div className="max-w-xl mx-auto flex items-center">
           <Link
-            to={`/tracking/${order.restaurant.slug}`}
+            to={withTableCode(`/tracking/${order.restaurant.slug}`, tableCode)}
             className="w-10 h-10 flex items-center justify-center bg-gray-50 hover:bg-gray-100 rounded-full transition-colors mr-3"
           >
             <ChevronLeft className="w-5 h-5 text-gray-700" />
@@ -175,8 +221,8 @@ const CustomerOrderTracking: React.FC = () => {
             <h1 className="font-extrabold text-lg text-gray-900 tracking-tight truncate">Order #{order.order_number}</h1>
             <p className="text-xs text-gray-500 font-semibold truncate">{order.restaurant.name}</p>
           </div>
-          <button onClick={() => loadOrder()} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors">
-            <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          <button onClick={() => void loadOrder(true)} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors">
+            <RefreshCcw className={`w-4 h-4 ${loading || refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>

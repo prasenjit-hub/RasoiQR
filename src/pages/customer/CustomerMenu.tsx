@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ShoppingCart,
@@ -12,14 +12,20 @@ import {
 import { Card, Button, Skeleton, Alert } from "../../components/ui";
 import { DEFAULT_MENU_BANNER_URL } from "../../config/config";
 import {
-  subscribeToMenuForCustomer,
+  getMenuForRestaurant,
+  getMenuVersion,
   callWaiter,
   resolveTableCode,
 } from "../../services/restaurantService";
 import type { MenuItem } from "../../config/supabase";
-import { formatCurrency, MAX_ITEM_QUANTITY } from "../../utils/helpers";
+import {
+  formatCurrency,
+  MAX_ITEM_QUANTITY,
+  withTableCode,
+} from "../../utils/helpers";
 import { supabase } from "../../config/supabase";
 import { persistentStorage } from "../../utils/persistentStorage";
+import { usePollWhenVisible } from "../../utils/usePollWhenVisible";
 import { useBodyScrollLock } from "../../utils/useBodyScrollLock";
 import { useDragToDismiss } from "../../utils/useDragToDismiss";
 import { useIdleShake } from "../../utils/useIdleShake";
@@ -55,12 +61,67 @@ const isSameCartLine = (
   a.selectedSize?.name === b.selectedSize?.name &&
   JSON.stringify(a.selectedAddons) === JSON.stringify(b.selectedAddons);
 
+/**
+ * How often the guest's menu is re-checked for availability changes.
+ *
+ * The check is a ~35-byte version token (`get_menu_version`, migration 046); the
+ * menu itself (659 bytes per item on the live database) is downloaded only when
+ * that token moves, which is why this can be once a minute rather than the 20
+ * seconds the order list uses — an order's status is what a guest is actively
+ * waiting on, while a dish runs out at most a few times a day. It only runs
+ * while the tab is visible (see usePollWhenVisible), so a phone in a pocket
+ * costs nothing.
+ */
+const MENU_POLL_MS = 60_000;
+
+/**
+ * The menu this browser tab already has, kept OUTSIDE the component on purpose.
+ *
+ * Tapping Orders unmounts this page, and coming back used to start from nothing:
+ * the guest watched a full-screen skeleton while the whole menu downloaded again
+ * (~4 KB, plus a version check) — AND their cart was thrown away with it. The
+ * cart is the half a guest notices: they wandered off to check their order and
+ * came back to an empty tray.
+ *
+ * A module-level snapshot survives that unmount, so returning paints the dishes
+ * and the cart the guest already had — instantly, no spinner — and only then
+ * asks the ~35-byte version token whether anything actually needs re-downloading.
+ *
+ * Deliberately per tab and in memory only, exactly like the orders list:
+ *  · a reload starts clean, which is the right lifetime for data the server
+ *    re-validates on every fetch anyway;
+ *  · NOT `persistentStorage`, which mirrors every value into a cookie as well. A
+ *    menu plus a cart is kilobytes, cookies ride on every single request, and
+ *    crossing the ~4 KB per-cookie limit would make the save fail silently on
+ *    some browsers. Wedging the order flow to save one round trip is not a trade
+ *    worth making.
+ */
+interface MenuSnapshot {
+  restaurant: unknown;
+  menuItems: MenuItem[];
+  /** The version token that belongs to `menuItems` (migration 046). */
+  version: string | null;
+  /** The guest's tray — the part they would most notice losing. */
+  cart: CartItem[];
+}
+
+const menuSnapshots = new Map<string, MenuSnapshot>();
+
 const CustomerMenu: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const [restaurant, setRestaurant] = useState<any>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Paint what this tab already has. A cache hit means the guest sees their menu
+  // and their cart immediately, with no skeleton at all.
+  const cached = slug ? menuSnapshots.get(slug) : undefined;
+
+  const [restaurant, setRestaurant] = useState<any>(
+    () => cached?.restaurant ?? null
+  );
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(
+    () => cached?.menuItems ?? []
+  );
+  const [cart, setCart] = useState<CartItem[]>(() => cached?.cart ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
@@ -142,23 +203,28 @@ const CustomerMenu: React.FC = () => {
     };
   }, [slug, tableCode]);
 
-  // Load restaurant and menu
-  useEffect(() => {
-    loadRestaurant();
-  }, [slug]);
+  /**
+   * The restaurant id every menu call needs.
+   *
+   * Held in a ref rather than read off `restaurant` state so the two loaders
+   * below stay stable. While they depended on `restaurant?.id` the effects
+   * calling them re-ran the moment the restaurant row arrived — which is how one
+   * visit ended up asking for the menu twice. A snapshot seeds it, so a guest
+   * returning from Orders never waits on the restaurant row at all.
+   */
+  const restaurantIdRef = useRef<string | null>(
+    (cached?.restaurant as { id?: string } | undefined)?.id ?? null
+  );
 
-  useEffect(() => {
-    if (restaurant?.id) {
-      const cleanup = subscribeToMenuForCustomer(restaurant.id, (data) => {
-        setMenuItems(data);
-        setLoading(false);
-      });
+  /** The version token that describes the menu currently on screen (046). */
+  const menuVersionRef = useRef<string | null>(cached?.version ?? null);
 
-      return cleanup;
-    }
-  }, [restaurant]);
-
-  const loadRestaurant = async () => {
+  /**
+   * The restaurant row for this slug: the header, the banner, and whether the
+   * restaurant is still open for orders at all. Nothing happens without it on a
+   * cold visit, because the menu RPC is keyed by the id it carries.
+   */
+  const loadRestaurant = useCallback(async () => {
     if (!slug) return;
 
     const { data, error } = await supabase.rpc("get_restaurant_by_slug", {
@@ -171,8 +237,137 @@ const CustomerMenu: React.FC = () => {
       return;
     }
 
+    restaurantIdRef.current = data[0].id;
     setRestaurant(data[0]);
-  };
+  }, [slug]);
+
+  /**
+   * Load, or re-load, the guest's menu — together with the token that
+   * identifies it.
+   *
+   * The two are asked for together on purpose: the stored token has to describe
+   * the menu that was stored with it, or the next check would compare against a
+   * state this screen never showed. They are independent requests, so the pair
+   * costs no more waiting than the menu alone did.
+   *
+   * Reads the restaurant id from `restaurantIdRef` so it needs no dependencies
+   * and never changes identity — see the ref above for why that matters.
+   *
+   * Never rejects: a failed fetch returns null and the menu already on screen
+   * stays put, because an empty menu is a worse answer than a slightly old dish
+   * list.
+   */
+  const loadMenu = useCallback(async () => {
+    const restaurantId = restaurantIdRef.current;
+    if (!restaurantId) return;
+
+    const [items, version] = await Promise.all([
+      getMenuForRestaurant(restaurantId),
+      getMenuVersion(restaurantId),
+    ]);
+
+    if (items === null) {
+      // The first load has nothing to keep, so stop the skeleton rather than
+      // hang on it forever — the next poll, or coming back to the tab, fills
+      // the menu in.
+      setLoading(false);
+      return;
+    }
+
+    if (version !== null) menuVersionRef.current = version;
+
+    setMenuItems(items);
+    setLoading(false);
+  }, []);
+
+  /**
+   * The 60-second tick: ask the ~35-byte token first, and pay for the whole menu
+   * only when it says something changed (migration 046).
+   *
+   * A failed check is deliberately NOT treated as "no change". A failure means
+   * the answer is unknown, and the safe direction is the full refresh the app did
+   * before this token existed — guessing "no change" on an error would let a menu
+   * go stale silently, which is the exact bug this replaced. The extra cost is
+   * paid only while checks are failing, and it degrades to the previous behaviour
+   * (which was also correct, just wasteful) rather than to no refresh at all.
+   */
+  const refreshMenuIfChanged = useCallback(async () => {
+    const restaurantId = restaurantIdRef.current;
+    if (!restaurantId) return;
+
+    const version = await getMenuVersion(restaurantId);
+
+    // Same token means nothing moved, so the menu on screen is still current.
+    if (version !== null && version === menuVersionRef.current) return;
+
+    await loadMenu();
+  }, [loadMenu]);
+
+  /**
+   * Opening the page. Keyed on the slug alone — the loaders are stable now, so
+   * this runs once per visit instead of again every time the restaurant row
+   * landed.
+   *
+   * A snapshot changes what "open" means. With one, the dishes and the cart are
+   * already on screen, so the restaurant row and the ~35-byte version check are
+   * asked for at the same time, and the whole menu is downloaded only if that
+   * check says it moved. Without one, the restaurant row still has to land first,
+   * because the menu RPC is keyed by its id.
+   */
+  useEffect(() => {
+    void (async () => {
+      if (menuSnapshots.has(slug ?? "")) {
+        await Promise.all([loadRestaurant(), refreshMenuIfChanged()]);
+        return;
+      }
+
+      await loadRestaurant();
+      await loadMenu();
+    })();
+  }, [slug, loadRestaurant, loadMenu, refreshMenuIfChanged]);
+
+  /**
+   * Keep the snapshot in step with what is on screen — the cart most of all,
+   * since that is the part a guest notices losing. Written after every change
+   * rather than on the way out, so a fast tap on Orders cannot race it.
+   */
+  useEffect(() => {
+    if (!slug || !restaurant) return;
+
+    // Only ever file a row that belongs to THIS slug. During a slug change the
+    // previous restaurant is still in state for a beat, and storing it here
+    // would put restaurant A's dishes in restaurant B's snapshot.
+    const rowSlug = (restaurant as { slug?: string }).slug;
+    if (rowSlug && rowSlug !== slug) return;
+
+    // And only file a COMPLETED load. `version` is set by the same call that sets
+    // the menu, so a snapshot without one means the menu has not arrived yet —
+    // reading that back on the next visit would paint an empty menu with no
+    // skeleton, instead of loading it. (A restaurant with no menu at all is not
+    // this case: it has a real token, `0|none`.)
+    if (menuVersionRef.current === null) return;
+
+    menuSnapshots.set(slug, {
+      restaurant,
+      menuItems,
+      version: menuVersionRef.current,
+      cart,
+    });
+  }, [slug, restaurant, menuItems, cart]);
+
+  // 🍽️ Keep availability fresh while the guest reads. The kitchen marks an item
+  // out of stock from its own dashboard, and `get_menu_for_restaurant` returns
+  // only the available items — so without this a guest who scanned the QR
+  // before that keeps seeing the dish and only finds out at the end of checkout.
+  // A Realtime subscription cannot do it here (the guest is `anon`, which has no
+  // privilege on `menu_items` — the subscription that replaced it could never
+  // deliver a row). The cheap version is to poll the anon-callable version token
+  // and re-download the menu only when it moves.
+  usePollWhenVisible(
+    refreshMenuIfChanged,
+    MENU_POLL_MS,
+    Boolean(restaurant?.id)
+  );
 
   // Helper to dynamically match icons/emojis with categories
   const getCategoryEmoji = (category: string | undefined): string => {
@@ -473,7 +668,9 @@ const CustomerMenu: React.FC = () => {
       <CustomerNavbar
         restaurantName={restaurant?.name}
         tableNumber={tableLabel}
-        onOrders={() => navigate(`/tracking/${slug}`)}
+        // The table code rides along: the Orders page must be able to hand the
+        // guest back to the menu at THEIR table, not on the Master QR.
+        onOrders={() => navigate(withTableCode(`/tracking/${slug}`, tableCode))}
         onCallWaiter={handleCallWaiter}
       />
       

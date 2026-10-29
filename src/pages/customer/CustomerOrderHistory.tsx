@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../../config/supabase";
 import {
   CheckCircle,
@@ -12,87 +12,149 @@ import {
   RefreshCcw,
   Receipt
 } from "lucide-react";
-import { formatCurrency } from "../../utils/helpers";
+import {
+  formatCurrency,
+  isTerminalOrderStatus,
+  tableCodeFromSearch,
+  withTableCode,
+} from "../../utils/helpers";
 import { persistentStorage } from "../../utils/persistentStorage";
+import { usePollWhenVisible } from "../../utils/usePollWhenVisible";
+
+/** How often a still-moving order's status is re-asked for while the guest
+ *  watches this list. */
+const HISTORY_POLL_MS = 20_000;
+
+/**
+ * The last list this browser saw, kept OUTSIDE the component on purpose.
+ *
+ * Tapping an order unmounts this page, and coming back used to start from
+ * nothing: the whole list blanked to a full-screen spinner and waited on the
+ * network before re-showing rows the guest had looked at a second earlier.
+ * A module-level snapshot survives that unmount, so returning paints the
+ * previous list straight away and the refresh happens quietly underneath — the
+ * same instant result for the in-page arrow and the browser's Back button.
+ *
+ * Deliberately per tab and in memory only: a reload starts clean, which is the
+ * right lifetime for rows the RPC re-validates on every fetch anyway.
+ */
+interface OrderHistorySnapshot {
+  orders: unknown[];
+  restaurant: unknown;
+}
+
+const historySnapshots = new Map<string, OrderHistorySnapshot>();
 
 const CustomerOrderHistory: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const [orders, setOrders] = useState<any[]>([]);
-  const [restaurant, setRestaurant] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!slug) return;
-    loadData();
+  // 🪑 The table code travels with the guest through every hop (migration 045).
+  // Dropping it here is what silently turned a dine-in guest into a takeaway
+  // customer on the way back to the menu — they landed on the Master-QR URL and
+  // lost their table, with nothing on screen explaining why.
+  const [searchParams] = useSearchParams();
+  const tableCode = tableCodeFromSearch(searchParams);
 
-    // Polling or realtime could be set up here, but let's keep it simple with a refresh button or channel
-    const channel = supabase
-      .channel(`customer_tracking_${slug}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-          filter: `restaurant_id=eq.${restaurant?.id}`,
-        },
-        () => {
-          loadData();
-        }
-      )
-      .subscribe();
+  // Paint what this tab already has. A cache hit means the guest sees the list
+  // immediately on the way back from an order, with no spinner at all.
+  const cached = slug ? historySnapshots.get(slug) : undefined;
 
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [slug, restaurant?.id]);
+  const [orders, setOrders] = useState<any[]>(() => cached?.orders ?? []);
+  const [restaurant, setRestaurant] = useState<any>(
+    () => cached?.restaurant ?? null
+  );
+  const [loading, setLoading] = useState(!cached);
+  /** A background refresh in flight — spins the header button only. */
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
+  /**
+   * `silent` is a refresh of data already on screen: it must not blank the page
+   * the guest is reading.
+   */
+  const loadData = useCallback(
+    async (silent = false) => {
+      if (!slug) return;
 
-      // Get order IDs from persistent storage (localStorage + cookie fallback)
-      let orderIds: string[] = [];
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+
       try {
-        const stored = persistentStorage.getItem(`recent_orders_${slug}`);
-        if (stored) {
-          orderIds = JSON.parse(stored);
+        // Get order IDs from persistent storage (localStorage + cookie fallback)
+        let orderIds: string[] = [];
+        try {
+          const stored = persistentStorage.getItem(`recent_orders_${slug}`);
+          if (stored) {
+            orderIds = JSON.parse(stored);
+          }
+        } catch (e) {
+          console.error("Local storage error:", e);
         }
-      } catch (e) {
-        console.error("Local storage error:", e);
-      }
 
-      // Fetch restaurant via SECURITY DEFINER RPC (RLS-bypassing)
-      const { data: restData } = await supabase.rpc("get_restaurant_by_slug", {
-        p_slug: slug,
-      });
+        // The header's restaurant and the order rows are independent, so ask
+        // for both at once. Awaiting them one after the other was the "slight
+        // loading" on every open — and this page used to do it twice, because
+        // the effect below was keyed on `restaurant?.id`.
+        const [restResult, ordersResult] = await Promise.all([
+          supabase.rpc("get_restaurant_by_slug", { p_slug: slug }),
+          orderIds.length > 0
+            ? supabase.rpc("get_orders_for_tracking", {
+                p_order_ids: orderIds,
+              })
+            : null,
+        ]);
 
-      const restaurantRow = Array.isArray(restData) ? restData[0] : restData;
-      if (restaurantRow) {
-        setRestaurant(restaurantRow);
-      }
+        const restaurantRow = Array.isArray(restResult.data)
+          ? restResult.data[0]
+          : restResult.data;
 
-      if (orderIds.length === 0) {
+        // Merge rather than overwrite: no remembered order IDs means the guest
+        // genuinely has none, but a failed fetch must not wipe rows that are
+        // already on screen (and in the snapshot).
+        const previous = historySnapshots.get(slug);
+        const nextRestaurant = restaurantRow ?? previous?.restaurant ?? null;
+        let nextOrders: unknown[] =
+          orderIds.length === 0 ? [] : previous?.orders ?? [];
+
+        if (ordersResult && !ordersResult.error && ordersResult.data) {
+          nextOrders = Array.isArray(ordersResult.data)
+            ? ordersResult.data
+            : [ordersResult.data];
+        }
+
+        if (nextRestaurant) {
+          setRestaurant(nextRestaurant);
+        }
+        setOrders(nextOrders);
+        historySnapshots.set(slug, {
+          orders: nextOrders,
+          restaurant: nextRestaurant,
+        });
+      } catch (err) {
+        console.error(err);
+      } finally {
         setLoading(false);
-        return;
+        setRefreshing(false);
       }
+    },
+    [slug]
+  );
 
-      // Fetch orders via SECURITY DEFINER RPC (RLS-bypassing)
-      const { data: ordersData, error } = await supabase.rpc(
-        "get_orders_for_tracking",
-        { p_order_ids: orderIds }
-      );
+  // First load. Keyed on the loader alone — never on `restaurant?.id`, which
+  // re-ran this effect (and re-fetched everything) the moment the restaurant
+  // row arrived, then again when the channel it created was torn down.
+  useEffect(() => {
+    // Revalidating a list that is already on screen is silent: the guest keeps
+    // the rows they were reading while the fresh ones are fetched behind them.
+    void loadData(Boolean(slug && historySnapshots.has(slug)));
+  }, [loadData, slug]);
 
-      if (!error && ordersData) {
-        const rows = Array.isArray(ordersData) ? ordersData : [ordersData];
-        setOrders(rows);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Keep live statuses fresh. Realtime cannot do this for a guest — `anon` has
+  // no SELECT on `orders` at all (migration 033), so the channel this page used
+  // to open could never deliver a row. See usePollWhenVisible.
+  const hasLiveOrder = orders.some(
+    (order) => !isTerminalOrderStatus(order.status)
+  );
+  usePollWhenVisible(() => loadData(true), HISTORY_POLL_MS, hasLiveOrder);
 
   const getStatusDisplay = (status: string) => {
     const s = status.toLowerCase();
@@ -128,7 +190,7 @@ const CustomerOrderHistory: React.FC = () => {
       <div className="bg-white px-4 py-4 sticky top-0 z-30 shadow-sm border-b border-gray-100">
         <div className="max-w-xl mx-auto flex items-center">
           <Link
-            to={`/menu/${slug}`}
+            to={withTableCode(`/menu/${slug}`, tableCode)}
             className="w-10 h-10 flex items-center justify-center bg-gray-50 hover:bg-gray-100 rounded-full transition-colors mr-3 text-gray-700"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -140,10 +202,10 @@ const CustomerOrderHistory: React.FC = () => {
             )}
           </div>
           <button 
-            onClick={() => loadData()} 
+            onClick={() => void loadData(true)} 
             className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCcw className={`w-4 h-4 ${loading || refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>
@@ -155,7 +217,7 @@ const CustomerOrderHistory: React.FC = () => {
             <h2 className="text-lg font-bold text-gray-900 mb-2">No active orders</h2>
             <p className="text-gray-500 text-sm mb-6">Looks like you haven't placed any orders here recently.</p>
             <Link
-              to={`/menu/${slug}`}
+              to={withTableCode(`/menu/${slug}`, tableCode)}
               className="inline-flex py-3 px-6 rounded-xl font-bold uppercase tracking-wider text-xs bg-amber-500 hover:bg-amber-600 text-white transition-colors"
             >
               View Menu
@@ -167,7 +229,7 @@ const CustomerOrderHistory: React.FC = () => {
             return (
               <Link
                 key={order.id}
-                to={`/order/${order.id}`}
+                to={withTableCode(`/order/${order.id}`, tableCode)}
                 className="bg-white border text-left border-gray-100 shadow-[0_10px_25px_rgba(0,0,0,0.02)] rounded-3xl p-5 block transition-all active:scale-[0.98] hover:shadow-[0_15px_30px_rgba(0,0,0,0.04)]"
               >
                 <div className="flex items-center justify-between mb-4">

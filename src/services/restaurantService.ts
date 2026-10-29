@@ -297,41 +297,88 @@ export const getRestaurantStats = async (restaurantId: string) => {
 /*  the data with proper scoping and recompute prices server-side.            */
 /* -------------------------------------------------------------------------- */
 
-export const subscribeToMenuForCustomer = (
-  restaurantId: string,
-  callback: (items: MenuItem[]) => void
-): (() => void) => {
-  const fetchItems = async () => {
-    const { data, error } = await supabase.rpc("get_menu_for_restaurant", {
-      p_restaurant_id: restaurantId,
-    });
-    if (!error && data) {
-      callback(data as MenuItem[]);
-    }
-  };
+/**
+ * The menu a guest may order from — only the items the kitchen still has.
+ *
+ * `get_menu_for_restaurant` filters `is_available = TRUE` server-side, so an
+ * item the kitchen has run out of is ABSENT from this list rather than shown
+ * greyed out. That is what makes a stale list worth fixing: the guest would
+ * otherwise be reading a dish they can no longer order, and only find out when
+ * the order is refused at the end of checkout.
+ *
+ * It takes a restaurant id, and the guest pages learn that id from
+ * `get_restaurant_by_slug` — the slug in the URL is not enough on its own,
+ * which is why a first menu load is two round trips.
+ *
+ * ⚠️ Do NOT turn this back into a `postgres_changes` subscription, and do NOT
+ * "fix" one by granting `anon` SELECT on `menu_items`. Guests are `anon`, and
+ * `anon` holds no privilege at all on that table (live database:
+ * `has_table_privilege('anon','public.menu_items','SELECT')` is false, and the
+ * only policy on the table is owner-scoped). A Realtime channel there joins,
+ * holds a socket open and silently delivers nothing — which is exactly what the
+ * function this replaced did, and why "update menu availability live" was a
+ * promise the guest page never kept. Handing `anon` the SELECT instead would
+ * expose every restaurant's menu and pricing to any anonymous visitor. Re-ask
+ * this RPC (see `usePollWhenVisible`) — it is anon-callable by design.
+ *
+ * Returns `null` when the request failed, so a caller can keep the menu it
+ * already has rather than replacing it with an empty one.
+ */
+export const getMenuForRestaurant = async (
+  restaurantId: string
+): Promise<MenuItem[] | null> => {
+  const { data, error } = await supabase.rpc("get_menu_for_restaurant", {
+    p_restaurant_id: restaurantId,
+  });
 
-  fetchItems();
+  if (error) {
+    console.error("Error fetching the customer menu:", error);
+    return null;
+  }
 
-  const channel = supabase
-    .channel(`customer-menu-${restaurantId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "menu_items",
-        filter: `restaurant_id=eq.${restaurantId}`,
-      },
-      () => {
-        fetchItems();
-      }
-    )
-    .subscribe();
+  return (data ?? []) as MenuItem[];
+};
 
-  // Phase 3.7: return React-idiomatic cleanup function
-  return () => {
-    void supabase.removeChannel(channel);
-  };
+/**
+ * A ~35-byte answer to "has this guest's menu changed?" (migration 046).
+ *
+ * `get_menu_version` returns a token that moves whenever anything a guest can
+ * order changes — an item running out, coming back, being renamed or re-priced —
+ * and stays put otherwise. It covers the same `is_available = TRUE` slice
+ * `getMenuForRestaurant` returns, digesting each row's `id` + `updated_at`.
+ *
+ * That digest is the reason it is not simply `max(updated_at)`: `updated_at` is
+ * stamped with the transaction's start time, so a write that begins before
+ * another commits and lands after it carries the OLDER timestamp — the maximum
+ * would not move and a real change would go unnoticed. Verified on live data:
+ * of one restaurant's 6 items, 5 were below the maximum, and an out-of-order
+ * write left `count|max` identical while the digest moved.
+ *
+ * What it saves: measured on the live database the full menu is 659 bytes per
+ * item, so the 60-second refresh pulled ~4 KB for today's menu and would pull
+ * ~99 KB at 150 items — on a guest's mobile data — only to discard it because
+ * nothing had changed. The check costs 35 bytes and the menu is re-fetched only
+ * when it is actually stale.
+ *
+ * Returns `null` when the check itself failed. A caller must NOT read that as
+ * "no change" — it means the answer is unknown, and the safe response is the
+ * full refresh the app did before this token existed. That costs more, but only
+ * while checks are failing, and it cannot leave a guest reading a dish the
+ * kitchen has already run out of, which is the bug this replaced.
+ */
+export const getMenuVersion = async (
+  restaurantId: string
+): Promise<string | null> => {
+  const { data, error } = await supabase.rpc("get_menu_version", {
+    p_restaurant_id: restaurantId,
+  });
+
+  if (error) {
+    console.error("Error checking the customer menu version:", error);
+    return null;
+  }
+
+  return typeof data === "string" ? data : null;
 };
 
 // ── Waiter calls (migration 036) ─────────────────────────────────────────────
