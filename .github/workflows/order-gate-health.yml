@@ -1,0 +1,44 @@
+name: Order gate health
+
+# The public order path has exactly one door (`submit-order`), and it fails
+# CLOSED when misconfigured: a missing secret is a 503, a wrong widget is a 403,
+# and every order stops. Nothing else in the system notices, so this job is the
+# noticing — an hourly probe that emails the repository owner when it fails.
+#
+# It also keeps the Supabase Free-plan project warm: Free pauses a project after
+# 7 days without activity, and the database probe counts as activity.
+#
+# Manual run: Actions → "Order gate health" → Run workflow.
+
+on:
+  schedule:
+    # Minute 17 on purpose: the top of the hour is GitHub's busiest slot.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: order-gate-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Probe the order gate
+        env:
+          SUPABASE_URL: https://yoyiwaszogpdheuaftag.supabase.co
+          # PUBLIC BY DESIGN — this is the key that ships in every visitor's
+          # bundle. It is here so the check needs no setup; update it here if
+          # the project's anon key is ever rotated.
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlveWl3YXN6b2dwZGhldWFmdGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMzE4NTksImV4cCI6MjA5NTkwNzg1OX0.pdCJ2k0WvhFby0iUklopzuR_3-qv99iQrn0URW7iC1A
+        run: node scripts/check-order-gate.mjs

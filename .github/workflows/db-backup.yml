@@ -1,0 +1,52 @@
+name: DB backup
+
+# The Supabase Free plan has no server-side backups. This job is the only copy:
+# every table plus the auth users, exported to JSON and kept as a workflow
+# artifact for 90 days.
+#
+# One-time setup (see docs/runbooks/order-flow.md):
+#   Repository → Settings → Secrets and variables → Actions → New secret
+#     SUPABASE_URL                  https://<project-ref>.supabase.co
+#     SUPABASE_SERVICE_ROLE_KEY     Settings → API → service_role
+# Until both exist the job fails on purpose rather than writing an empty backup.
+#
+# Restore is manual and deliberate — the artifact holds guest phone numbers, so
+# it is never committed to the repository.
+
+on:
+  schedule:
+    # 19:30 UTC = 01:00 IST, after the restaurant has closed.
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Export the database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backup-db.mjs
+
+      - name: Upload the backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backups/
+          retention-days: 90
+          if-no-files-found: error

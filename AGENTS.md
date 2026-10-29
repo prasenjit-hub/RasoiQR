@@ -204,6 +204,8 @@ database/
 
 **Client side.** `src/services/turnstile.ts` (lazy script loader, `render=explicit`), `src/pages/customer/components/TurnstileWidget.tsx` (`appearance: 'interaction-only'` — the box only appears if Cloudflare actually needs a human), and a `turnstileNonce` in `CheckoutContent` that remounts the widget. ⚠️ That nonce is load-bearing: a token is **single-use** and lives 300 s, so the previous attempt always spends the current one. It is bumped on every sheet open *and* on every failed submit; without it, "Order More" after a successful order would submit a dead token and read the refusal as a failure.
 
+**Operating it — read this before touching the gate.** [docs/runbooks/order-flow.md](docs/runbooks/order-flow.md) holds the health checks (`node scripts/check-order-gate.mjs`), the **order-sensitive rollback** (the SQL `grant execute … to anon` comes *before* removing the Vercel site key, otherwise guests get *permission denied*), secret rotation, the function redeploy, CSP rules and the Free-plan backup job. Two scheduled workflows back it: `order-gate-health.yml` probes the gate hourly (and keeps the Free project from pausing after 7 idle days) and `db-backup.yml` exports every table plus auth users daily as a 90-day artifact — the Free plan has no server-side backups, so that artifact is the only copy.
+
 ## Launch phase completion (LAUNCH_PLAN.md)
 
 | Phase | Status |

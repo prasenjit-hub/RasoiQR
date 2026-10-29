@@ -40,3 +40,7 @@ PROGRESS.md
 
 # Supabase CLI scratch state (project ref, temp bundling) — never commit
 supabase/.temp/
+
+# Database backups: contains guest phone numbers. CI uploads them as artifacts
+# instead (see .github/workflows/db-backup.yml).
+backups/
