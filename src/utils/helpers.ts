@@ -19,6 +19,51 @@ export const formatCurrency = (amount: number | undefined | null): string => {
 export const MAX_ITEM_QUANTITY = 50;
 
 /**
+ * The table code carried by a table QR (`?t=<code>`, migration 045), read off
+ * the URL and normalised the one way the server expects it.
+ *
+ * Every customer page that can be reached from a table QR needs this, because
+ * the code is the ONLY thing that says which table the guest is sitting at —
+ * `customer_create_order` resolves the label from it and ignores anything else
+ * the client claims. Losing it mid-visit silently demotes the guest to a
+ * takeaway customer: they cannot order dine-in any more and Call Waiter
+ * disappears, with nothing on screen explaining why.
+ */
+export const tableCodeFromSearch = (params: URLSearchParams): string =>
+  (params.get("t") || "").trim().toLowerCase();
+
+/**
+ * Append that code to an in-app path, so a link never drops the guest's table.
+ *
+ * Used by the menu → orders → order → back chain: each hop is a real URL, so
+ * the browser's own Back button, a refresh and a shared link all keep working
+ * instead of depending on history that a deep link never had.
+ */
+export const withTableCode = (
+  path: string,
+  tableCode?: string | null
+): string => {
+  const code = (tableCode ?? "").trim().toLowerCase();
+  if (!code) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}t=${encodeURIComponent(code)}`;
+};
+
+/**
+ * A status an order never leaves.
+ *
+ * The customer tracking pages keep their status fresh by re-asking
+ * `get_orders_for_tracking`, which is fine while an order can still move and
+ * pure waste once it cannot — a finished order is the one case where the page
+ * can stop talking to the network entirely. `ready` is deliberately NOT in here:
+ * it still moves on to `completed`.
+ */
+const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled", "rejected"]);
+
+export const isTerminalOrderStatus = (
+  status: string | null | undefined
+): boolean => TERMINAL_ORDER_STATUSES.has(String(status ?? "").trim().toLowerCase());
+
+/**
  * 🔁 Idempotency reference for one checkout attempt (migration 039).
  *
  * `customer_create_order` takes this as `p_client_ref`: a retry that carries a
@@ -83,14 +128,62 @@ export const restaurantNameSizeClass = (
 };
 
 /**
- * Generate unique slug from restaurant name
+ * Latin letters that Unicode does NOT decompose (đ, ł, ø, ı …). Stripping
+ * combining marks is therefore not enough on its own — these need an explicit
+ * map. The two strings MUST line up character for character, and they are the
+ * exact pair migration 047 uses in `normalize_slug`, so what the admin previews
+ * and what the database stores cannot disagree.
  */
-export const generateSlug = (name: string): string => {
-  return name
-    .toLowerCase()
+/** The cap `admin_create_restaurant` applies, and the one this file enforces. */
+export const MAX_SLUG_LENGTH = 50;
+
+const SLUG_ACCENTS =
+  "àáâãäåāăąçćčďđèéêëēėęěğģìíîïīįłļñńňòóôõöøōőřśšşťţùúûüūůűýÿžźż";
+const SLUG_BASES =
+  "aaaaaaaaacccddeeeeeeeeggiiiiiillnnnoooooooorsssttuuuuuuuyyzzz";
+
+/**
+ * Mirror of the database's `normalize_slug()` (migration 047).
+ *
+ * The DATABASE is the authority: `admin_create_restaurant` normalises whatever
+ * this returns, substitutes `r-<hex>` when nothing is left, and appends `-2`,
+ * `-3`, … on a collision. This exists so the admin can SEE the menu link they
+ * are about to get beforehand — the slug is printed on a QR standee and can
+ * never be changed afterwards, so a surprise here is permanent.
+ *
+ * The order matches the SQL and matters: fold accents, then DELETE apostrophes
+ * (`Mummy's` → `mummys`, not `mummy-s`), then collapse every remaining run of
+ * punctuation to one hyphen, then trim the edges.
+ *
+ * It does NOT make the value unique — the RPC owns that, and appends `-2`,
+ * `-3`, … on a name clash.
+ */
+export const normalizeSlug = (
+  input: string | null | undefined,
+  maxLength: number = MAX_SLUG_LENGTH
+): string => {
+  if (!input) return "";
+
+  // `for … of` walks code points, matching PostgreSQL's `char_length`/`translate`
+  // rather than JS string indices (which split surrogate pairs).
+  let folded = "";
+  for (const ch of input.toLowerCase()) {
+    const at = SLUG_ACCENTS.indexOf(ch);
+    folded += at >= 0 && at < SLUG_BASES.length ? SLUG_BASES[at] : ch;
+  }
+
+  const cleaned = folded
+    .replace(/['"’”`]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 50);
+    .replace(/^-+|-+$/g, "");
+
+  // The RPC does `left(normalize_slug(x), 50)`, and a cut that lands on a hyphen
+  // leaves a trailing one — which `restaurants_slug_format` then REJECTS. The
+  // RPC's exception handler turns that into `success = false` AFTER the auth
+  // user was already created, i.e. an orphaned login. Cutting and then trimming
+  // here produces the same length without that failure mode, so the browser can
+  // never submit a value the constraint refuses.
+  return cleaned.slice(0, maxLength).replace(/-+$/, "");
 };
 
 /**

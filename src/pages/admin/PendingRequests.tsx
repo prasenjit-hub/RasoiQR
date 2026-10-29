@@ -27,7 +27,12 @@ import {
   rejectRegistrationRequest,
 } from "../../services/adminService";
 import type { RegistrationRequest } from "../../config/supabase";
-import { formatDateTime, copyToClipboard } from "../../utils/helpers";
+import {
+  formatDateTime,
+  copyToClipboard,
+  normalizeSlug,
+  MAX_SLUG_LENGTH,
+} from "../../utils/helpers";
 import { APP_CONFIG } from "../../config/config";
 
 const PendingRequests: React.FC = () => {
@@ -265,6 +270,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
+    slug: "",
     subscriptionPlan: "free_trial",
     internalNotes: "",
     sendViaSMS: true,
@@ -272,14 +278,26 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     sendViaEmail: true,
   });
 
+  // Seed both fields from the registration request. The menu link is derived
+  // from the restaurant's name — and for a name written in Devanagari, Telugu or
+  // Tamil that derivation is EMPTY, because neither the database nor the browser
+  // can transliterate those scripts (migration 047). An empty field is the
+  // honest answer: the admin types the Roman form, as the brand's spelling is
+  // not something the app can guess correctly.
   useEffect(() => {
     if (request) {
       setFormData((prev) => ({
         ...prev,
         email: request.email || "",
+        slug: normalizeSlug(request.restaurant_name),
       }));
     }
   }, [request]);
+
+  // Live preview of the link this account will get. It runs the SAME function
+  // the service sends, which mirrors the database's `normalize_slug`, so what is
+  // shown here and what is stored cannot drift.
+  const slugPreview = normalizeSlug(formData.slug);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -290,6 +308,18 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       return;
     }
 
+    // The menu link is blocked here for ONE reason: a value that normalises to
+    // nothing silently becomes `r-<6 hex>` in the database. It still works, but
+    // it is printed on a standee and can never be changed — so the admin is
+    // asked to pick it rather than being handed a random one without noticing.
+    const cleanSlug = normalizeSlug(formData.slug);
+    if (!cleanSlug) {
+      setError(
+        "Choose a menu link in English letters, numbers or hyphens — for example kabab-corner."
+      );
+      return;
+    }
+
     if (!request) return;
 
     setLoading(true);
@@ -297,6 +327,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       email: formData.email,
       subscriptionPlan: formData.subscriptionPlan,
       internalNotes: formData.internalNotes,
+      slug: cleanSlug,
     });
 
     setLoading(false);
@@ -348,6 +379,31 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           placeholder="owner@restaurant.com"
           required
           helperText="This will be used for login"
+        />
+
+        {/* The menu link goes on every QR standee the restaurant will ever put
+            on a table, and cannot be changed afterwards — so it is shown as the
+            link itself, not as an abstract string. `maxLength` is not cosmetic:
+            the RPC trims to 50, and a trim on the wrong character leaves a
+            trailing hyphen that the CHECK constraint rejects. Keeping the input
+            inside 50 means that path is never taken.
+
+            Deliberately NOT `required`: native browser validation would replace
+            the submit-time message with a bare "Please fill out this field", and
+            the admin needs to be told *why* this one is theirs to type (an Indic
+            name has no Roman form anything can derive). `handleSubmit` handles
+            it with a message that explains the situation. */}
+        <Input
+          label="Menu Link"
+          value={formData.slug}
+          onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+          placeholder="kabab-corner"
+          maxLength={MAX_SLUG_LENGTH}
+          helperText={
+            slugPreview
+              ? `/menu/${slugPreview} — printed on the QR standees and permanent`
+              : "This name has no English spelling the app can derive. Type the menu link yourself, e.g. kabab-corner."
+          }
         />
 
         <Select
@@ -536,7 +592,17 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const text = `Login Credentials:\n\nEmail: ${credentials?.email}\nPassword: ${credentials?.password}\nLogin URL: ${credentials?.loginUrl}`;
+    const menuLink = credentials?.slug
+      ? `${window.location.origin}/menu/${credentials.slug}`
+      : null;
+    const text = [
+      "Login Credentials:",
+      "",
+      `Email: ${credentials?.email}`,
+      `Password: ${credentials?.password}`,
+      `Login URL: ${credentials?.loginUrl}`,
+      ...(menuLink ? ["", `Menu Link: ${menuLink}`] : []),
+    ].join("\n");
     const success = await copyToClipboard(text);
     if (success) {
       setCopied(true);
@@ -586,6 +652,18 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
                 {credentials.loginUrl}
               </p>
             </div>
+            {/* Only rendered when the service managed to read the FINAL value
+                back. If that read failed, showing the submitted slug could be
+                a lie: on a name clash the database stores `-2` and the guest
+                link would differ from the one on screen. */}
+            {credentials.slug && (
+              <div>
+                <label className="text-xs text-text-secondary">Menu Link</label>
+                <p className="font-mono text-text text-sm break-all">
+                  {window.location.origin}/menu/{credentials.slug}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

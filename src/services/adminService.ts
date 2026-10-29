@@ -3,7 +3,7 @@ import { APP_CONFIG, SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { supabase } from "../config/supabase";
 import type { RegistrationRequest, Restaurant } from "../config/supabase";
 import {
-  generateSlug,
+  normalizeSlug,
   generateTempPassword,
 } from "../utils/helpers";
 
@@ -61,6 +61,13 @@ export const createRestaurantAccount = async (
     email: string;
     subscriptionPlan: string;
     internalNotes?: string;
+    /**
+     * The menu link the admin chose in the create form. Optional so an older
+     * caller still compiles — `admin_create_restaurant` normalises whatever
+     * arrives, so a missing value is a suggestion the database corrects, not
+     * an error.
+     */
+    slug?: string;
   }
 ) => {
   try {
@@ -75,8 +82,11 @@ export const createRestaurantAccount = async (
       throw new Error("Registration request not found");
     }
 
-    // 2. Generate slug and temp password
-    const slug = generateSlug(request.restaurant_name);
+    // 2. Take the admin's menu link plus a temp password.
+    //    `normalizeSlug` mirrors the database's `normalize_slug`; it is not a
+    //    second opinion. The RPC normalises this again and owns the final
+    //    value, so a stale browser can never bend the column.
+    const slug = normalizeSlug(data.slug ?? request.restaurant_name);
     const tempPassword = generateTempPassword();
 
     // 3. Create real user in Supabase standard Auth (GoTrue)
@@ -134,17 +144,46 @@ export const createRestaurantAccount = async (
       throw new Error(result?.[0]?.message || "Failed to create restaurant");
     }
 
+    // 5. Read the FINAL slug back. The RPC deliberately does not return it:
+    //    adding an OUT column would need DROP + CREATE, and the DROP throws
+    //    away the function's ACL (see migration 047). `restaurants.email` is
+    //    UNIQUE and admins hold a SELECT policy, so this is one indexed row.
+    //
+    //    ⚠️ A failed read-back must NOT fail the call. The restaurant and its
+    //    auth user already exist by now, and reporting an error would invite a
+    //    retry — which would leave an orphaned login behind (the exact damage
+    //    047 documents). It degrades to "slug unknown" instead, and the success
+    //    screen simply omits the link rather than showing a value that might be
+    //    the pre-collision one.
+    const { data: created, error: slugError } = await supabase
+      .from("restaurants")
+      .select("slug")
+      .eq("email", data.email.toLowerCase())
+      .maybeSingle();
+
+    if (slugError) {
+      console.warn(
+        "[createRestaurantAccount] restaurant created, but the final slug could not be read back:",
+        slugError.message
+      );
+    }
+
+    const finalSlug: string | null = created?.slug ?? null;
+
     return {
       success: true,
       restaurant: {
         id: result[0].restaurant_id,
         name: request.restaurant_name,
-        slug: slug,
+        slug: finalSlug,
       },
       credentials: {
         email: data.email,
         password: tempPassword,
         loginUrl: `${window.location.origin}/login`,
+        // Null when the read-back failed — the caller shows the link only when
+        // it knows the real value.
+        slug: finalSlug,
       },
     };
   } catch (error) {
