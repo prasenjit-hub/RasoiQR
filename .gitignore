@@ -37,3 +37,6 @@ PROGRESS.md
 
 # Freebuff agent workspace (video project, renders, scratch downloads)
 .freebuff/
+
+# Supabase CLI scratch state (project ref, temp bundling) — never commit
+supabase/.temp/
