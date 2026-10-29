@@ -441,6 +441,40 @@ const callAdminRpc = async <T>(
   return { success: true, data: data as T };
 };
 
+// ── Order burst alerts (migrations 042 + 049) ───────────────────────────────
+//
+// 042 made the restaurant-wide order burst ALERT-ONLY: crossing 30 orders in a
+// rolling 5 minutes no longer refuses a guest's order — it raises a WARNING and
+// writes ONE deduplicated `notifications` row. Nothing read that row, though:
+// `notifications` holds no client privilege at all, so the signal lived only in
+// the Postgres log. 049 added `admin_get_order_burst_alerts()`, which is the
+// only way in and is admin-gated inside the database.
+export interface OrderBurstAlert {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  restaurant_slug: string;
+  orders_in_window: number;
+  window_minutes: number;
+  alert_level: number;
+  message: string;
+  created_at: string;
+}
+
+/**
+ * Recent burst alerts, newest first. The window and the row count are bounded
+ * server-side (7 days / 10 rows by default) so this can never be used to pull a
+ * restaurant's history in bulk.
+ */
+export const getOrderBurstAlerts = async (
+  days = 7,
+  limit = 10
+): Promise<RpcResult<OrderBurstAlert[]>> =>
+  callAdminRpc<OrderBurstAlert[]>("admin_get_order_burst_alerts", {
+    p_days: days,
+    p_limit: limit,
+  });
+
 export interface AnalyticsDay {
   day: string;
   orders: number;

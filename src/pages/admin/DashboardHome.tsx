@@ -9,16 +9,19 @@ import {
 import { Alert, Button, Card, Skeleton } from "../../components/ui";
 import {
   computeMRR,
+  getOrderBurstAlerts,
   getPlatformOverview,
+  type OrderBurstAlert,
   type PlatformOverview,
 } from "../../services/adminService";
-import { formatCurrency } from "../../utils/helpers";
+import { formatCurrency, formatDateTime } from "../../utils/helpers";
 import { Link } from "react-router-dom";
 
 const DashboardHome: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<PlatformOverview | null>(null);
+  const [burstAlerts, setBurstAlerts] = useState<OrderBurstAlert[]>([]);
 
   // Apply a fetched overview. The state updates live in a callback on purpose:
   // they then happen inside `.then` / event handlers, never synchronously in an
@@ -51,6 +54,31 @@ const DashboardHome: React.FC = () => {
       cancelled = true;
     };
   }, [applyOverview]);
+
+  // Burst alerts (migrations 042 + 049) load separately on purpose: they are
+  // additive telemetry, so a failure here must never take the dashboard's real
+  // numbers down with it — the error is logged and the card simply disappears.
+  // The state update sits inside `.then`, never in the effect body
+  // (react-hooks/set-state-in-effect, same reason as applyOverview above).
+  useEffect(() => {
+    let cancelled = false;
+
+    getOrderBurstAlerts().then((result) => {
+      if (cancelled) return;
+      if (result.success) {
+        setBurstAlerts(result.data);
+      } else {
+        console.warn(
+          "Could not load order burst alerts:",
+          result.message
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Retry: shows the skeleton again, then applies the fresh result.
   const loadStats = useCallback(async () => {
@@ -341,6 +369,57 @@ const DashboardHome: React.FC = () => {
                 Review restaurants
               </Link>
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Order-burst tripwire — 042 (alert-only: the guest's order is never
+          refused) and 049 (the reader). Before 049 this row had no consumer at
+          all, so the signal existed only in the Postgres log. */}
+      {burstAlerts.length > 0 && (
+        <div className="bg-warning/10 border border-warning/20 rounded-lg p-4">
+          <div className="flex items-start">
+            <AlertCircle className="w-5 h-5 text-warning mr-3 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <h4 className="font-semibold text-text mb-1">
+                Unusual Order Activity
+              </h4>
+              <p className="text-text-secondary text-sm">
+                {burstAlerts.length} burst alert
+                {burstAlerts.length > 1 ? "s" : ""} in the last 7 days.{" "}
+                <strong>No orders were refused</strong> — this is a tripwire,
+                not a cap. Check whether these were real rushes or abuse.
+              </p>
+              <ul className="mt-3 space-y-1.5">
+                {burstAlerts.map((alert) => (
+                  <li
+                    key={alert.id}
+                    className="text-sm text-text-secondary flex flex-wrap items-center gap-x-2"
+                  >
+                    <span className="font-medium text-text">
+                      {alert.restaurant_name}
+                    </span>
+                    <span>
+                      · {alert.orders_in_window} orders in{" "}
+                      {alert.window_minutes} min
+                    </span>
+                    <span>· {formatDateTime(alert.created_at)}</span>
+                    {alert.restaurant_slug && (
+                      <Link
+                        to={`/menu/${alert.restaurant_slug}`}
+                        className="text-accent hover:underline"
+                      >
+                        open menu
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-text-secondary mt-3">
+                Deduplicated to one alert per restaurant per 5 minutes, so a
+                long rush still produces a short list.
+              </p>
+            </div>
           </div>
         </div>
       )}
