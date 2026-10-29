@@ -191,11 +191,11 @@ database/
 1. Create a Turnstile widget in the Cloudflare dashboard (free: unlimited challenges). You get a **site key** (public) and a **secret key** (private).
 2. Deploy the function: `supabase functions deploy submit-order`.
 3. `supabase secrets set TURNSTILE_SECRET_KEY=<secret>` — then set `VITE_TURNSTILE_SITE_KEY=<site key>` in Vercel (and `.env` locally) and redeploy the frontend.
-4. ⚠️ **Close the bypass.** Until this step an attacker can still call `customer_create_order` directly with the public anon key and skip the gate entirely — the gate would be theatre. Once step 3 is verified working:
+4. ⚠️ **Close the bypass — but only once the function holds the service-role key.** Until this step an attacker can still call `customer_create_order` directly with the public anon key and skip the gate entirely — the gate would be theatre. ⚠️ The revoke takes away the **function's own** permission too, because a function calling with `SUPABASE_ANON_KEY` runs as `anon`; that is why `submit-order` reads `SUPABASE_SERVICE_ROLE_KEY` (injected into every function by the platform, server-only) and returns **503** when it is missing, and why this step is ordered after the redeploy. Verify one token-bearing call still reaches the RPC *before* revoking, or every order fails with *permission denied for function*. Then:
    ```sql
    revoke execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text) from anon;
    ```
-   Confirm the exact signature first (`pg_get_function_identity_arguments`), then re-run `npm run verify:submit-order` and place one real order.
+   `PUBLIC` holds no EXECUTE on it (039 revoked that), so this is a real change and not a no-op. Undo with `grant execute … to anon`. Confirm the exact signature first (`pg_get_function_identity_arguments`), then re-run `npm run verify:submit-order` and place one real order.
    **Deliberately NOT a numbered migration:** it is a lockout that has to land *after* a deploy outside the migration system. As a migration file it would be applied by anyone doing a from-scratch build — or by the next person running pending migrations — before the function exists, which is precisely when ordering breaks. It is a documented operational step, not schema.
 
 **Never put the secret in the browser.** The bundle is public; a leaked secret lets anyone post a `success: true` shaped reply and the whole scheme becomes decorative. Only `TURNSTILE_SITE_KEY` (public by design) is client-side.

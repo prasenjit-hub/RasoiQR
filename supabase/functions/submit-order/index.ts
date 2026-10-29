@@ -18,11 +18,19 @@ import { createClient } from "npm:@supabase/supabase-js@2"
  * — Turnstile raises the *cost* of abuse rather than proving anyone's identity.
  *
  * ── The design that matters ─────────────────────────────────────────────────
- * This function verifies the token and then calls the SAME RPC, with the SAME
- * anon client. It is a gate, not a replacement: server-side pricing, the trial
- * and blocked guards, the resolved table code, the phone cap, the item
- * validation and 039 idempotency all run untouched, exactly as they do today.
- * A change here must never grow into a second, weaker copy of those rules.
+ * This function verifies the token and then calls the SAME RPC. It is a gate,
+ * not a replacement: server-side pricing, the trial and blocked guards, the
+ * resolved table code, the phone cap, the item validation and 039 idempotency
+ * all run untouched, exactly as they do today. A change here must never grow
+ * into a second, weaker copy of those rules.
+ *
+ * It calls that RPC with the SERVICE ROLE key, not the anon key, and that is
+ * load-bearing rather than incidental: going live ends with `anon` losing
+ * EXECUTE on customer_create_order, because otherwise a script skips this
+ * function entirely and reaches the order path directly — the gate would be
+ * theatre. This function is the only caller left after that revoke, so it has
+ * to hold a key the browser can never have. No rule changes with the key: the
+ * RPC is SECURITY DEFINER and validates every field itself.
  *
  * ── Three outcomes, and why each is not the other ───────────────────────────
  *
@@ -103,6 +111,27 @@ function fail(message: string, status: number, extra?: Record<string, unknown>) 
   return json({ error: { message }, ...extra }, status)
 }
 
+/**
+ * The key this function calls the RPC with — server-only, never a browser key.
+ *
+ * `SUPABASE_SECRET_KEYS` is the current name (a JSON object of named secret
+ * keys); `SUPABASE_SERVICE_ROLE_KEY` is the legacy single key. Both are
+ * injected into every function by the platform. Legacy is read first because
+ * it is a plain JWT, which the Supabase client sends on both the `apikey` and
+ * `Authorization` headers without special handling; the new `sb_secret_…`
+ * format must only ride `apikey`.
+ */
+function serviceRoleKey(): string | undefined {
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+  if (legacy) return legacy
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, unknown>
+    return typeof keys.default === "string" ? keys.default : undefined
+  } catch {
+    return undefined
+  }
+}
+
 type SiteverifyReply = {
   success: boolean
   "error-codes"?: string[]
@@ -130,9 +159,12 @@ Deno.serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error("submit-order: missing SUPABASE_URL / SUPABASE_ANON_KEY in the function environment.")
+    const rpcKey = serviceRoleKey()
+    if (!supabaseUrl || !rpcKey) {
+      console.error(
+        "submit-order: missing SUPABASE_URL / service-role key in the function environment — " +
+          "refusing to accept orders, because `anon` no longer holds EXECUTE on customer_create_order."
+      )
       return fail("Order submission is not configured on this server.", 503)
     }
 
@@ -205,13 +237,13 @@ Deno.serve(async (req) => {
       })
     }
 
-    // ── The order itself: same RPC, same anon client, same rules ────────────
+    // ── The order itself: same RPC, same rules ───────────────────────────────
     const rpcArgs: Record<string, unknown> = {}
     for (const key of ORDER_PARAMS) {
       if (key in incoming) rpcArgs[key] = incoming[key]
     }
 
-    const client = createClient(supabaseUrl, supabaseAnonKey, {
+    const client = createClient(supabaseUrl, rpcKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 

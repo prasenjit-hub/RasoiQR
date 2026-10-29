@@ -73,7 +73,10 @@ const env = loadEnvFile(resolve(projectRoot, ".env"));
 // The function needs to construct a Supabase client even when nothing leaves the
 // machine; these are only ever used against stubbed transports.
 process.env.SUPABASE_URL ||= env.VITE_SUPABASE_URL || "https://stub.supabase.co";
-process.env.SUPABASE_ANON_KEY ||= env.VITE_SUPABASE_ANON_KEY || "stub-anon-key";
+// The RPC is called with the service-role key, not the anon key: once the gate
+// is live `anon` loses EXECUTE on customer_create_order (that revoke is what
+// closes the bypass), so the function is the only caller left.
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "stub-service-role-key";
 
 // Cloudflare's documented test secrets. If these ever stop behaving as
 // documented, the live cases fail loudly — which is the point.
