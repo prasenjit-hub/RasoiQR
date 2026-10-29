@@ -6,6 +6,8 @@ import { formatCurrency, isValidPhone, newIdempotencyRef } from "../../../utils/
 import type { CartItem } from "../CustomerMenu";
 import { persistentStorage } from "../../../utils/persistentStorage";
 import { useIdleShake } from "../../../utils/useIdleShake";
+import { isTurnstileEnabled } from "../../../services/turnstile";
+import TurnstileWidget from "./TurnstileWidget";
 
 // 👋 The checkout CTA nudges sooner than the cart's (5s vs 10s): the guest is
 // on the last step with the form already in front of them, so a shorter pause
@@ -103,6 +105,20 @@ export const customerOrderErrorMessage = (serverMessage?: string): string => {
     return "We couldn't confirm your order — the connection dropped. Please check your orders, then try again; retrying won't create a duplicate.";
   }
 
+  // The Turnstile gate in front of the order (supabase/functions/submit-order).
+  // A token that failed is almost always a token that was already spent — the
+  // guest who tapped twice, or whose response was lost — so this copy has to
+  // point at their orders as well as at a retry. 039 makes the retry replay the
+  // order instead of creating a second one.
+  if (message.includes("security check")) {
+    return "We couldn't finish the quick security check. Please check your orders, then try again — retrying won't create a duplicate.";
+  }
+  // Misconfigured deployment (no TURNSTILE_SECRET_KEY). Permanent by nature, so
+  // it must not say "try again" — that would loop until the admin acts.
+  if (message.includes("not configured on this server")) {
+    return "Online ordering is temporarily unavailable. Please order with a member of staff.";
+  }
+
   return "Could not place order. Please try again.";
 };
 
@@ -164,6 +180,30 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  // ---- Turnstile (bot gate, optional) --------------------------------------
+  // `nonce` is the widget's React key: bumping it remounts the widget, which is
+  // how a spent token is replaced. A token is single-use and lives 300 s, so the
+  // _previous_ attempt's token is dead the moment it is used — remounting on a
+  // failed submit and on every open is what keeps the next attempt carrying a
+  // fresh one. `tokenRef` mirrors the state so the submit handler can read the
+  // current value without a stale closure.
+  const [turnstileNonce, setTurnstileNonce] = useState(0);
+  const [turnstileUnavailable, setTurnstileUnavailable] = useState(false);
+  const turnstileTokenRef = useRef<string | null>(null);
+
+  // A ref, not state: the token is read imperatively at submit time and nothing
+  // on screen depends on it, so re-rendering the whole sheet every time
+  // Cloudflare refreshes a token would be pure cost.
+  const handleTurnstileToken = (token: string | null) => {
+    turnstileTokenRef.current = token;
+  };
+
+  const resetTurnstile = () => {
+    turnstileTokenRef.current = null;
+    setTurnstileUnavailable(false);
+    setTurnstileNonce((n) => n + 1);
+  };
 
   // 👋 PLACE ORDER shakes after 5s of stillness while this sheet is open, then
   // every 5s after that — the same nudge as the Crave-box CTA, at this step's
@@ -247,6 +287,15 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
       } catch {
         // Private mode / storage unavailable — fields just stay blank.
       }
+      // A fresh open is a fresh order attempt, and the last attempt's Turnstile
+      // token was spent by it — so hand the widget a new key here, not only on
+      // failure. Without this, "Order More" after a successful order would
+      // submit a dead token and read the refusal as a failure.
+      if (isTurnstileEnabled) {
+        turnstileTokenRef.current = null;
+        setTurnstileUnavailable(false);
+        setTurnstileNonce((n) => n + 1);
+      }
     }
   }
 
@@ -283,6 +332,22 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
       return;
     }
 
+    // The bot gate, when configured. Checked here rather than letting the server
+    // reject it so the guest gets an actionable sentence instead of "could not
+    // place order" — and so nothing is written while the check is still running.
+    if (isTurnstileEnabled) {
+      if (turnstileUnavailable) {
+        setError(
+          "We couldn't load the quick security check. Please turn off any ad blocker for this site, then try again."
+        );
+        return;
+      }
+      if (!turnstileTokenRef.current) {
+        setError("One moment — finishing the security check. Please tap Place Order again.");
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -312,6 +377,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
         customerPhone,
         customerNotes: notes,
         clientRef: clientRefFor(attemptKey),
+        turnstileToken: isTurnstileEnabled ? turnstileTokenRef.current : null,
         items: cart.map((item) => ({
           menu_item_id: item.id,
           quantity: item.quantity,
@@ -348,6 +414,9 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
         // trial / blocked restaurant) no longer reads as "try again" (audit P1-4).
         console.error("customer_create_order failed:", orderError);
         setError(customerOrderErrorMessage(orderError?.message));
+        // This attempt spent its Turnstile token, valid or not. Replace it now,
+        // so the retry the message just invited carries a fresh one.
+        if (isTurnstileEnabled) resetTurnstile();
       }
     } catch (unexpected) {
       // Network hiccup / unexpected throw. Deliberately NOT "could not place
@@ -358,6 +427,9 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
       setError(
         "We couldn't confirm your order. Please check your orders, then try again — retrying won't create a duplicate."
       );
+      // Same reason as the branch above: the token went out with a request that
+      // may or may not have landed, so it is no longer usable either way.
+      if (isTurnstileEnabled) resetTurnstile();
     } finally {
       // Always re-enable the Place Order button.
       setLoading(false);
@@ -499,6 +571,17 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
             className="h-24 w-full resize-none text-base px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-600 bg-white text-slate-900 placeholder:text-slate-400 transition-all"
           />
         </div>
+
+        {/* Turnstile renders nothing for a real guest (interaction-only) and
+            costs no layout space until Cloudflare actually needs a human. The
+            key is the nonce: remounting is how a spent token is replaced. */}
+        {isTurnstileEnabled && (
+          <TurnstileWidget
+            key={turnstileNonce}
+            onToken={handleTurnstileToken}
+            onUnavailable={() => setTurnstileUnavailable(true)}
+          />
+        )}
 
       </form>
 

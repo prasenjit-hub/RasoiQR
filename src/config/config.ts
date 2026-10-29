@@ -8,6 +8,21 @@ export const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
 
 /**
+ * Cloudflare Turnstile **site** key (public by design) — the only half of the
+ * bot-protection pair that may ever reach the browser. The matching secret lives
+ * in the `submit-order` edge function and must never be shipped here.
+ *
+ * Empty by default, and empty means "Turnstile is off": the checkout calls
+ * `customer_create_order` directly, exactly as it always has. That makes this a
+ * deliberate go-live switch, and the order matters — set it only *after* the
+ * edge function is deployed and its `TURNSTILE_SECRET_KEY` is configured, since
+ * from that moment the checkout stops calling the RPC itself.
+ */
+export const TURNSTILE_SITE_KEY = (
+  import.meta.env.VITE_TURNSTILE_SITE_KEY || ""
+).trim();
+
+/**
  * Fallback cover for the customer menu when a restaurant has not uploaded a
  * banner (`restaurants.banner_url`, migration 035).
  *

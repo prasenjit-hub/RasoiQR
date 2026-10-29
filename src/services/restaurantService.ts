@@ -1,5 +1,6 @@
 import { supabase } from "../config/supabase";
 import type { Order, MenuItem, Restaurant, RestaurantTable } from "../config/supabase";
+import { isTurnstileEnabled } from "./turnstile";
 
 /**
  * Restaurant API Service
@@ -594,6 +595,17 @@ export const updateWaiterCall = async (
   if (error) throw new Error(error.message);
 };
 
+/**
+ * What the checkout needs from a submit, whichever path took it. Deliberately
+ * the same `{ data, error }` shape `supabase.rpc` returns, so routing through
+ * the edge function is invisible to the caller and one error-mapping table in
+ * CheckoutContent covers both.
+ */
+export interface CreateOrderResult {
+  data: Array<{ order_id: string | null; order_number: string | null }> | null;
+  error: { message: string } | null;
+}
+
 export const createOrderAsCustomer = async (params: {
   restaurantId: string;
   orderType: "qr" | "counter";
@@ -614,14 +626,22 @@ export const createOrderAsCustomer = async (params: {
    * row — see `newIdempotencyRef` in utils/helpers.
    */
   clientRef: string;
+  /**
+   * Token from the checkout's `TurnstileWidget`. Only sent when
+   * `VITE_TURNSTILE_SITE_KEY` is configured — with it unset the order goes
+   * straight to the RPC exactly as it always has (see the branch below).
+   */
+  turnstileToken?: string | null;
   items: {
     menu_item_id: string;
     quantity: number;
     selected_size?: { name: string; price: number } | null;
     selected_addons?: { name: string; price: number }[];
   }[];
-}) => {
-  return await supabase.rpc("customer_create_order", {
+}): Promise<CreateOrderResult> => {
+  // One payload, built once: the direct RPC and the edge function must be told
+  // exactly the same thing, or the two paths would slowly drift apart.
+  const rpcArgs = {
     p_restaurant_id: params.restaurantId,
     // Deliberately null: the table is never named by the client (migration 045).
     p_table_number: null,
@@ -632,7 +652,55 @@ export const createOrderAsCustomer = async (params: {
     p_items: params.items,
     p_client_ref: params.clientRef,
     p_table_code: params.tableCode ?? null,
+  };
+
+  // ── Turnstile off (the default) ───────────────────────────────────────────
+  // Byte-for-byte the call this app has always made. Keeping this branch means
+  // shipping the gate code changes nothing until a site key is configured.
+  if (!isTurnstileEnabled) {
+    return await supabase.rpc("customer_create_order", rpcArgs);
+  }
+
+  // ── Turnstile on ──────────────────────────────────────────────────────────
+  // `submit-order` verifies the token server-side and then calls this same RPC
+  // as anon, so every rule inside it (pricing, trial/blocked guards, the
+  // resolved table code, the phone cap, 039 idempotency) still applies. It is a
+  // gate in front, not a replacement.
+  if (!params.turnstileToken) {
+    // Nothing to verify. Reported as an error rather than silently falling back
+    // to the direct RPC — that fallback is exactly the bypass the gate exists to
+    // close.
+    return {
+      data: null,
+      error: { message: "The security check has not completed yet. Please try again." },
+    };
+  }
+
+  const { data, error } = await supabase.functions.invoke("submit-order", {
+    body: { turnstileToken: params.turnstileToken, order: rpcArgs },
   });
+
+  if (error) {
+    // `FunctionsHttpError` hides the function's own body, which is where the
+    // database's sentence ("Trial expired", "Too many orders…") lives — and
+    // customerOrderErrorMessage maps those exact strings. Without this read,
+    // every refusal would collapse into the generic fallback.
+    let message = error.message;
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const parsed = (await context.clone().json()) as {
+          error?: { message?: string };
+        };
+        if (parsed?.error?.message) message = parsed.error.message;
+      } catch {
+        // Non-JSON body — keep the transport message.
+      }
+    }
+    return { data: null, error: { message } };
+  }
+
+  return { data: (data as { data?: CreateOrderResult["data"] } | null)?.data ?? null, error: null };
 };
 
 /**
