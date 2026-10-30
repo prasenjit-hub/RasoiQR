@@ -4,12 +4,11 @@ import {
   ShoppingCart,
   Plus,
   Minus,
-  X,
   Search,
   Package,
   Pencil,
 } from "lucide-react";
-import { Card, Button, Skeleton, Alert } from "../../components/ui";
+import { Alert, BottomSheet, Button, Card, Skeleton } from "../../components/ui";
 import { DEFAULT_MENU_BANNER_URL } from "../../config/config";
 import {
   getMenuForRestaurant,
@@ -26,8 +25,6 @@ import {
 import { supabase } from "../../config/supabase";
 import { persistentStorage } from "../../utils/persistentStorage";
 import { usePollWhenVisible } from "../../utils/usePollWhenVisible";
-import { useBodyScrollLock } from "../../utils/useBodyScrollLock";
-import { useDragToDismiss } from "../../utils/useDragToDismiss";
 import { useIdleShake } from "../../utils/useIdleShake";
 import CustomerNavbar from "./components/CustomerNavbar";
 import RestaurantHeader from "./components/RestaurantHeader";
@@ -157,27 +154,12 @@ const CustomerMenu: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // 🔒 The page behind any open bottom sheet must not scroll.
-  useBodyScrollLock(showCart || showItemModal || showCheckout || Boolean(paymentOrder));
-
   // 👋 The Crave-box CTA nudges every 10s of stillness while its sheet is up,
   // so a guest who added items but stopped short of ordering is reminded.
   const cartCtaNudging = useIdleShake(showCart);
 
-  // 🖐️ Pull a sheet down from its header strip to dismiss it. Backdrop tap,
-  // ✕ button and the order-complete close all keep working as before.
-  const cartDrag = useDragToDismiss({
-    enabled: showCart,
-    onDismiss: () => setShowCart(false),
-  });
-  const customizerDrag = useDragToDismiss({
-    enabled: showItemModal,
-    onDismiss: closeItemSheet,
-  });
-  const checkoutDrag = useDragToDismiss({
-    enabled: showCheckout,
-    onDismiss: () => setShowCheckout(false),
-  });
+  // Each sheet now owns its own chrome (backdrop, drag, scroll lock) through
+  // the shared BottomSheet, so there is nothing to wire up here.
 
   // Migration 045: a table QR now carries a per-table CODE (`?t=<code>`), never a
   // table number. The number a guest reads ("Table 5") comes back from the
@@ -778,36 +760,14 @@ const CustomerMenu: React.FC = () => {
         )}
       </div>
 
-      {/* 🍔 Premium Custom Slide-up bottom Sheet for Cart Drawer */}
-      <div
-        className={`fixed inset-0 bg-neutral-950/70 backdrop-blur-sm z-50 transition-opacity duration-300 ${
-          showCart ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={() => setShowCart(false)}
-      />
-      <div
-        ref={cartDrag.panelRef}
-        className={`fixed bottom-0 left-0 right-0 max-w-xl mx-auto bg-white rounded-t-[32px] z-50 transition-transform duration-300 ease-out shadow-2xl max-h-[85vh] flex flex-col ${
-          showCart ? "translate-y-0" : "translate-y-full"
-        }`}
+      {/* 🍔 Cart — same shell as the customizer, checkout and payment sheets */}
+      <BottomSheet
+        open={showCart}
+        onClose={() => setShowCart(false)}
+        title="Your Crave-box"
+        subtitle={`${cartCount} ${cartCount === 1 ? "item" : "items"} selected`}
       >
-        <div className="w-12 h-1.5 bg-neutral-200 rounded-full mx-auto my-3.5 touch-none" />
         
-        <div className="px-6 pb-4 border-b border-neutral-50 flex justify-between items-center">
-          <div>
-            <h3 className="font-extrabold text-xl text-neutral-800">Your Crave-box</h3>
-            <p className="text-xs font-semibold text-neutral-400 mt-0.5">
-              {cartCount} {cartCount === 1 ? "item" : "items"} selected
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCart(false)}
-            className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:bg-neutral-200/80 transition-colors"
-          >
-            <X className="w-5 h-5 stroke-[2.5]" />
-          </button>
-        </div>
-
         <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-neutral-50">
           {cart.length === 0 ? (
             <div className="text-center py-12">
@@ -951,24 +911,10 @@ const CustomerMenu: React.FC = () => {
             </Button>
           </div>
         )}
-      </div>
+      </BottomSheet>
 
-      {/* 📋 Item Customization Modal (Sleek Glassmorphism Drawer) */}
-      <div
-        className={`fixed inset-0 bg-neutral-950/70 backdrop-blur-sm z-50 transition-opacity duration-300 ${
-          showItemModal ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={closeItemSheet}
-      />
-      <div
-        ref={customizerDrag.panelRef}
-        className={`fixed bottom-0 left-0 right-0 max-w-xl mx-auto bg-white rounded-t-[32px] z-50 transition-transform duration-300 ease-out shadow-2xl max-h-[85vh] flex flex-col ${
-          showItemModal ? "translate-y-0" : "translate-y-full"
-        }`}
-      >
-        <div className="w-12 h-1.5 bg-neutral-200 rounded-full mx-auto my-3.5 touch-none" />
-        
-        {selectedItem && (
+      {/* 📋 Item Customization — the sheet shell lives inside the component */}
+      {selectedItem && (
           <ItemCustomizerContent
             isOpen={showItemModal}
             item={selectedItem}
@@ -978,24 +924,9 @@ const CustomerMenu: React.FC = () => {
             initialSelection={editContext?.seed ?? null}
           />
         )}
-      </div>
 
-      {/* 🍕 Sleek Checkout Sheet Overlay */}
-      <div
-        className={`fixed inset-0 bg-neutral-950/70 backdrop-blur-sm z-50 transition-opacity duration-300 ${
-          showCheckout ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={() => setShowCheckout(false)}
-      />
-      <div
-        ref={checkoutDrag.panelRef}
-        className={`fixed bottom-0 left-0 right-0 max-w-xl mx-auto bg-white rounded-t-[32px] z-50 transition-transform duration-300 ease-out shadow-2xl max-h-[90vh] flex flex-col ${
-          showCheckout ? "translate-y-0" : "translate-y-full"
-        }`}
-      >
-        <div className="w-12 h-1.5 bg-neutral-200 rounded-full mx-auto my-3.5 touch-none" />
-        
-        {restaurant && (
+      {/* 🍕 Checkout — the sheet shell lives inside the component */}
+      {restaurant && (
           <CheckoutContent
             isOpen={showCheckout}
             cart={cart}
@@ -1035,7 +966,6 @@ const CustomerMenu: React.FC = () => {
             }}
           />
         )}
-      </div>
 
       {/* 🚀 Persistent Bottom Floating Cart Indicator */}
       {cartCount > 0 && !showCart && !showCheckout && !showItemModal && (

@@ -6,10 +6,9 @@ import {
   QrCode,
   ShieldCheck,
   Smartphone,
-  X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button } from "../../../components/ui";
+import { Alert, BottomSheet, Button } from "../../../components/ui";
 import {
   claimUpiPayment,
   getOrderPaymentInfo,
@@ -40,6 +39,11 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  // Which half of the flow the guest is on. Before they leave for the UPI app,
+  // "Open UPI app" is the primary action; after they have left (or opened the
+  // QR for another phone), the only useful next step is "I have paid". Two
+  // filled black buttons at once made the guest choose between them.
+  const [openedApp, setOpenedApp] = useState(false);
 
   useEffect(() => {
     if (!order?.orderId) return;
@@ -126,36 +130,18 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 backdrop-blur-[2px] sm:items-center sm:px-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white shadow-2xl sm:rounded-3xl">
-        {/* Header */}
-        <div className="sticky top-0 z-10 rounded-t-[32px] bg-white px-6 pb-3 pt-4 sm:rounded-t-3xl">
-          <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-neutral-200 sm:hidden" />
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-600">
-                Direct UPI
-              </p>
-              <h3 className="truncate text-2xl font-black text-neutral-900">
-                {amount > 0 ? `Pay ${formatCurrency(amount)}` : "Pay via UPI"}
-              </h3>
-              <p className="truncate text-xs font-bold text-neutral-400">
-                Order #{orderNumber || "…"}
-                {info?.restaurant_name ? ` · ${info.restaurant_name}` : ""}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close payment"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-500"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-4 px-6 pb-6">
+    <BottomSheet
+      open
+      onClose={onClose}
+      eyebrow="UPI payment"
+      title={amount > 0 ? `Pay ${formatCurrency(amount)}` : "Pay via UPI"}
+      subtitle={`Order #${orderNumber || "…"}${
+        info?.restaurant_name ? ` · ${info.restaurant_name}` : ""
+      }`}
+      maxHeightClass="max-h-[90vh]"
+      zClassName="z-[80]"
+    >
+      <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-4">
           {error && <Alert type="error" message={error} />}
 
           {loading && (
@@ -214,15 +200,15 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
 
           {!loading && !notRequired && !finished && !unavailable && info && (
             <>
-              <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
-                <p className="text-xs font-black text-amber-900">
-                  Paying {payee} directly
-                </p>
-                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-amber-800/80">
-                  RasoiQR does not receive or hold this money. Pay exactly{" "}
-                  {formatCurrency(amount)}.
-                </p>
-              </div>
+              {/* One amber line, not a card. "Paying {payee} directly" used to
+                  be the heading here, but the footer already says the money
+                  goes straight to the restaurant — so it was the same claim
+                  twice. What survives is the one fact this screen knows and
+                  the footer does not: the exact amount, which every UPI app
+                  lets the payer edit before confirming. */}
+              <p className="rounded-xl bg-amber-50/70 px-3.5 py-2.5 text-center text-[11px] font-semibold leading-relaxed text-amber-800">
+                Pay exactly {formatCurrency(amount)} — don't change the amount.
+              </p>
 
               {upiUri ? (
                 <>
@@ -230,10 +216,15 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
                       has nothing to open there. */}
                   <a
                     href={upiUri}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3.5 text-xs font-black uppercase tracking-wider text-white transition-colors hover:bg-neutral-800 md:hidden"
+                    onClick={() => setOpenedApp(true)}
+                    className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-xs font-black uppercase tracking-wider transition-colors md:hidden ${
+                      openedApp
+                        ? "border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                        : "bg-neutral-900 text-white hover:bg-neutral-800"
+                    }`}
                   >
                     <Smartphone className="h-4 w-4" />
-                    Pay {formatCurrency(amount)} in UPI app
+                    Open UPI app
                   </a>
 
                   <div className="hidden flex-col items-center gap-2 rounded-2xl border border-neutral-200 p-4 md:flex">
@@ -245,7 +236,12 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
 
                   <button
                     type="button"
-                    onClick={() => setShowQr((value) => !value)}
+                    onClick={() => {
+                      setShowQr((value) => !value);
+                      // Showing the QR means they are paying on another phone,
+                      // so the next step here is still "I have paid".
+                      setOpenedApp(true);
+                    }}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-xs font-bold text-neutral-600 md:hidden"
                   >
                     <QrCode className="h-4 w-4" />
@@ -261,37 +257,44 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between gap-3 rounded-xl bg-neutral-50 p-3">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-neutral-400">
-                        UPI ID
-                      </p>
-                      <p className="truncate font-mono text-xs font-bold text-neutral-800">
-                        {info.upi_id}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
+                  {/* Compact row: the old one used a size="sm" outline Button
+                      (40px tall, 2px black border, 8px vertical padding) inside
+                      a p-3 card, which made a single line of text look like a
+                      form field. The label stays — it tells a guest what to
+                      paste — but the control is now a quiet 30px chip. */}
+                  <div className="flex items-center gap-2.5 rounded-xl bg-neutral-50 py-1.5 pl-3.5 pr-1.5">
+                    <span className="shrink-0 text-[10px] font-black uppercase tracking-wider text-neutral-500">
+                      UPI ID
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold text-neutral-800">
+                      {info.upi_id}
+                    </span>
+                    <button
+                      type="button"
                       onClick={handleCopy}
-                      icon={<Copy className="h-3.5 w-3.5" />}
+                      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-neutral-600 transition-colors hover:bg-neutral-100"
                     >
+                      <Copy className="h-3 w-3" />
                       {copied ? "Copied" : "Copy"}
-                    </Button>
+                    </button>
                   </div>
 
+                  {/* Step-aware emphasis: outline until they have actually left
+                      for the app, filled black afterwards — the screen then
+                      reads pay → confirm instead of offering two primaries. */}
                   <Button
                     fullWidth
                     loading={claiming}
                     onClick={handleClaim}
+                    variant={openedApp ? "primary" : "outline"}
                     className="rounded-xl py-3.5 text-xs font-black uppercase tracking-wider"
                   >
                     I have paid
                   </Button>
 
-                  <p className="text-center text-[11px] font-medium leading-relaxed text-neutral-400">
-                    After paying, tap above. The restaurant checks its own UPI app and
-                    confirms — your order starts after that.
+                  <p className="text-center text-[11px] font-medium leading-relaxed text-neutral-500">
+                    After paying, tap “I have paid”. The restaurant checks its own UPI app
+                    and confirms — your order starts after that.
                   </p>
                 </>
               ) : (
@@ -303,12 +306,11 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
             </>
           )}
 
-          <p className="text-center text-[10px] font-semibold leading-relaxed text-neutral-400">
-            Money goes directly to {payee}. RasoiQR is not a payment intermediary.
+          <p className="text-center text-[11px] font-semibold leading-relaxed text-neutral-500">
+            Money goes directly to {payee} — RasoiQR never holds it.
           </p>
-        </div>
       </div>
-    </div>
+    </BottomSheet>
   );
 };
 

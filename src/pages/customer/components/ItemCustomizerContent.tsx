@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { CheckCircle, Minus, Plus, X } from "lucide-react";
+import { CheckCircle, Minus, Plus } from "lucide-react";
+import { BottomSheet } from "../../../components/ui";
 import type { MenuItem } from "../../../config/supabase";
 import { formatCurrency, MAX_ITEM_QUANTITY } from "../../../utils/helpers";
 
@@ -99,22 +100,12 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
   const isAddDisabled = !!(item.sizes && item.sizes.length > 0 && !selectedSize);
 
   return (
-    <>
-      <div className="px-6 pb-3 border-b flex justify-between items-center">
-        <div>
-          <h3 className="font-extrabold text-lg text-neutral-800">
-          {isEditing ? "Edit Item" : "Customize Item"}
-        </h3>
-          <p className="text-xs text-neutral-400 font-bold">{item.name}</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
+    <BottomSheet
+      open={isOpen}
+      onClose={onClose}
+      title={isEditing ? "Edit Item" : "Customize Item"}
+      subtitle={item.name}
+    >
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
         {item.image_url && (
           <img
@@ -239,7 +230,7 @@ const ItemCustomizerContent: React.FC<ItemCustomizerContentProps> = ({
           {isAddDisabled ? "Select a Variant" : isEditing ? "Update Plate" : "Add Customised Plate"}
         </button>
       </div>
-    </>
+    </BottomSheet>
   );
 };
 

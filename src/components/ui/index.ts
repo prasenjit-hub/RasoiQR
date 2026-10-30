@@ -4,6 +4,7 @@ export { Select } from "./Select";
 export { Textarea } from "./Textarea";
 export { Card } from "./Card";
 export { Modal } from "./Modal";
+export { BottomSheet } from "./BottomSheet";
 export { Badge } from "./Badge";
 export { Loading } from "./Loading";
 export { Alert } from "./Alert";

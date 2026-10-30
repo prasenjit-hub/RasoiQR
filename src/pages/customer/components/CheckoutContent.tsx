@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { X, UtensilsCrossed, ShoppingBag, UserRound, Phone, Smartphone, Wallet } from "lucide-react";
-import { Alert, Button, Input } from "../../../components/ui";
+import { UtensilsCrossed, ShoppingBag, UserRound, Phone } from "lucide-react";
+import { Alert, BottomSheet, Button, Input } from "../../../components/ui";
 import {
   createOrderAsCustomer,
   getOrderPaymentInfo,
@@ -518,20 +518,13 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   };
 
   return (
-    <>
-      <div className="px-6 pb-3 border-b flex justify-between items-center">
-        <div>
-          <h3 className="font-extrabold text-lg text-neutral-800">Review Order</h3>
-          <p className="text-xs text-neutral-400 font-bold">Confirm location to deliver food</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
+    <BottomSheet
+      open={isOpen}
+      onClose={onClose}
+      title="Review Order"
+      subtitle="Confirm location to deliver food"
+      maxHeightClass="max-h-[90vh]"
+    >
       <form
         id="checkout-form"
         onSubmit={handleSubmit}
@@ -572,11 +565,6 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
               <span>Takeaway / Parcel</span>
             </button>
           </div>
-          {!hasTableContext && (
-            <p className="text-[11px] font-semibold text-neutral-400 mt-2 text-center">
-              Takeaway order — scan your table's QR code for dine-in
-            </p>
-          )}
         </div>
 
         {/* The table comes from the QR code — there is nothing to type, and the
@@ -589,7 +577,14 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
         )}
         {/* Payment — the owner decides which options exist. When both are on,
             the guest chooses here and the choice is stored on the order; the
-            server refuses a method the restaurant does not accept. */}
+            server refuses a method the restaurant does not accept.
+
+            Deliberately a segmented control, not two cards. Payment is one
+            binary decision, and the card treatment made it read as a second
+            copy of Order Type while claiming ~120px of a sheet that is already
+            tall; it also repeated the total inside the UPI card. When only one
+            method is enabled there is no decision to show at all, so the plain
+            line below does the whole job in one row. */}
         <div>
           <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-2">
             Payment
@@ -606,42 +601,39 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           )}
 
           {paymentOptions && paymentOptions.accepts_cash && paymentOptions.accepts_upi_prepaid && (
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod("counter")}
-                aria-pressed={paymentMethod === "counter"}
-                className={`p-4 rounded-2xl border-2 font-bold transition-all text-xs flex flex-col items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
-                  paymentMethod === "counter"
-                    ? "border-amber-500 bg-amber-50/40 text-amber-900 shadow-sm"
-                    : "border-gray-200 hover:border-neutral-300 text-neutral-500 bg-white"
-                }`}
+            <>
+              <div
+                role="group"
+                aria-label="Payment method"
+                className="flex gap-1 rounded-xl bg-neutral-100 p-1"
               >
-                <Wallet className="w-5 h-5" strokeWidth={2} />
-                <span>Pay at counter</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                  Cash / card
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("counter")}
+                  aria-pressed={paymentMethod === "counter"}
+                  className={`flex-1 rounded-[10px] px-3 py-2.5 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                    paymentMethod === "counter"
+                      ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5"
+                      : "text-neutral-500 hover:text-neutral-700"
+                  }`}
+                >
+                  Pay at counter
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setPaymentMethod("upi")}
-                aria-pressed={paymentMethod === "upi"}
-                className={`p-4 rounded-2xl border-2 font-bold transition-all text-xs flex flex-col items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
-                  paymentMethod === "upi"
-                    ? "border-amber-500 bg-amber-50/40 text-amber-900 shadow-sm"
-                    : "border-gray-200 hover:border-neutral-300 text-neutral-500 bg-white"
-                }`}
-              >
-                <Smartphone className="w-5 h-5" strokeWidth={2} />
-                <span>Pay now via UPI</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                  {formatCurrency(total)} to{" "}
-                  {paymentOptions.upi_payee_name || "the restaurant"}
-                </span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("upi")}
+                  aria-pressed={paymentMethod === "upi"}
+                  className={`flex-1 rounded-[10px] px-3 py-2.5 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                    paymentMethod === "upi"
+                      ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5"
+                      : "text-neutral-500 hover:text-neutral-700"
+                  }`}
+                >
+                  Pay via UPI
+                </button>
+              </div>
+            </>
           )}
 
           {paymentOptions && paymentOptions.accepts_cash && !paymentOptions.accepts_upi_prepaid && (
@@ -764,7 +756,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           Place Order
         </Button>
       </div>
-    </>
+    </BottomSheet>
   );
 };
 
