@@ -29,21 +29,31 @@ import type { Order } from "../../config/supabase";
 import { formatDateTime, formatCurrency } from "../../utils/helpers";
 import { useAuth } from "../../contexts/AuthContext";
 
-/** UPI orders carry their own badge, so an unpaid one is visible in the list. */
+/**
+ * UPI orders carry their own badge, so an unpaid one is visible in the list.
+ *
+ * The badge is also where the staff instruction lives now. It used to be a
+ * 10px caption under the "Payment received" button, which added a fifth
+ * stacked line to the action column and made a UPI card twice as tall as a
+ * cash one for no extra information — the badge says it in the place staff
+ * already look for state.
+ */
 const getPaymentBadge = (order: Order) => {
   const status = order.payment_status;
   if (status === "paid") {
     return <Badge variant="success">UPI paid</Badge>;
   }
   if (status === "claimed") {
-    return <Badge variant="warning">UPI · check app</Badge>;
+    return <Badge variant="warning">Guest says paid</Badge>;
   }
   if (status === "failed") {
-    return <Badge variant="error">UPI · not found</Badge>;
+    return <Badge variant="error">UPI not found</Badge>;
   }
   if (status === "expired") {
     return <Badge variant="neutral">UPI expired</Badge>;
   }
+  // "Unpaid", not "pending": the order-status badge right beside it already
+  // says "Pending", and two identical words read like a glitch.
   return <Badge variant="warning">UPI unpaid</Badge>;
 };
 
@@ -222,8 +232,10 @@ const Orders: React.FC = () => {
         )}
       </div>
 
-      {/* Status Filter */}
-      <div className="flex overflow-x-auto gap-2 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      {/* Status Filter — wraps on a phone instead of scrolling. With the
+          scrollbar hidden there was no cue that "Parcel (0" was cut off, so
+          the last two filters looked missing. */}
+      <div className="flex flex-wrap gap-2 pb-2">
         {["pending", "accepted", "ready", "completed", "cancelled"].map((status) => {
           const count = orders.filter((o) => o.status === status).length;
           return (
@@ -259,15 +271,23 @@ const Orders: React.FC = () => {
           {filteredOrders.map((order) => (
             <Card
               key={order.id}
-              className={`hover:shadow-lg transition-shadow ${
+              // `min-w-0`: a grid item defaults to min-width:auto, so the action
+              // buttons below (which cannot shrink below their label) stretched
+              // the card to 449px in a 382px viewport and made the WHOLE page
+              // scroll sideways. Letting the card shrink is what keeps the
+              // dashboard inside the phone screen.
+              className={`min-w-0 hover:shadow-lg transition-shadow ${
                 order.status === "pending" ? "border-l-4 border-l-warning" : ""
               }`}
             >
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 {/* Order Info */}
                 <div className="flex-1 space-y-3">
-                  {/* Header */}
-                  <div className="flex items-start justify-between">
+                  {/* Header — badges drop below the number on a phone, where
+                      two stacked badges beside it squeezed the order number
+                      onto a second line. From `sm` up the original right-hand
+                      column returns unchanged. */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex items-center space-x-3">
                       {getStatusIcon(order.status)}
                       <div>
@@ -279,7 +299,7 @@ const Orders: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                       {order.payment_method === "upi" && getPaymentBadge(order)}
                       {getStatusBadge(order.status)}
                     </div>
@@ -338,7 +358,10 @@ const Orders: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex lg:flex-col gap-2 lg:min-w-[160px]">
+                {/* On a phone the buttons wrap instead of sitting in one row:
+                    four full-width actions cannot fit beside each other, and
+                    the old row was silently clipped at the screen edge. */}
+                <div className="flex flex-wrap lg:flex-col gap-2 lg:min-w-[160px]">
                   <Button
                     variant="outline"
                     size="sm"
@@ -361,13 +384,6 @@ const Orders: React.FC = () => {
                           >
                             Payment received
                           </Button>
-                          <p className="text-[10px] font-medium leading-tight text-text-secondary text-center">
-                            {order.payment_status === "claimed"
-                              ? "Guest says they paid — check your UPI app."
-                              : order.payment_status === "failed"
-                              ? "No payment found — settle it at the counter."
-                              : "Waiting for the guest's UPI payment."}
-                          </p>
                           {order.payment_status === "claimed" && (
                             <Button
                               variant="outline"
@@ -380,15 +396,20 @@ const Orders: React.FC = () => {
                           )}
                         </>
                       )}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        fullWidth
-                        disabled={awaitingUpiPayment(order)}
-                        onClick={() => handleStatusUpdate(order.id, "accepted")}
-                      >
-                        Accept
-                      </Button>
+                      {/* An unpaid UPI order cannot be accepted at all (the RPC
+                          refuses it), so a permanently disabled Accept was
+                          just a dead 44px button. It appears the moment the
+                          payment is confirmed. */}
+                      {!awaitingUpiPayment(order) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          fullWidth
+                          onClick={() => handleStatusUpdate(order.id, "accepted")}
+                        >
+                          Accept
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"

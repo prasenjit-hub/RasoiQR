@@ -200,7 +200,10 @@ const RestaurantDashboard: React.FC = () => {
       {/* Secondary Navigation */}
       <div className="bg-white border-b border-border">
         <div className="container-custom">
-          <div className="flex space-x-1 overflow-x-auto">
+          {/* Wraps on a phone. As a scroller the last two tabs (Reports,
+              Settings) sat off-screen with no scrollbar and no cut-off edge to
+              hint at them, so the navigation looked like it had three items. */}
+          <div className="flex flex-wrap gap-x-1">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               const isUnseen = item.tab ? unseenTabs.includes(item.tab) : false;
@@ -208,7 +211,9 @@ const RestaurantDashboard: React.FC = () => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center space-x-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+                  // `px-3` on a phone is what lets the five tabs land in two
+                  // rows instead of three; from `sm` up the padding is unchanged.
+                  className={`flex items-center space-x-2 px-3 py-3 sm:px-4 border-b-2 transition-colors whitespace-nowrap ${
                     isActive
                       ? "border-accent text-accent font-medium"
                       : "border-transparent text-text-secondary hover:text-text"
