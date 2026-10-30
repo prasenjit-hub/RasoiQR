@@ -212,7 +212,6 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   // Migration 050 — the owner's switches decide what this section shows.
   // `null` while loading; a failure falls back to cash, never blocks ordering.
   const [paymentOptions, setPaymentOptions] = useState<RestaurantPaymentOptions | null>(null);
-  const [paymentOptionsFailed, setPaymentOptionsFailed] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"counter" | "upi">("counter");
 
   // ---- Turnstile (bot gate, optional) --------------------------------------
@@ -303,15 +302,13 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
 
     let cancelled = false;
     setPaymentOptions(null);
-    setPaymentOptionsFailed(false);
 
     void getRestaurantPaymentOptions(slug).then((options) => {
-      if (cancelled) return;
-      if (!options) {
-        setPaymentOptionsFailed(true);
-        return;
-      }
+      if (cancelled || !options) return;
       setPaymentOptions(options);
+      // One enabled option is not a choice: fixing the method here keeps the
+      // request honest, because the order RPC refuses a method the owner has
+      // switched off. UI never shows this — it only picks the CTA wording.
       setPaymentMethod(options.accepts_cash ? "counter" : "upi");
     });
 
@@ -517,12 +514,19 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
     setOrderType(hasTableContext ? "table" : "takeaway");
   };
 
+  // The table is confirmed by the server before this sheet opens, so it belongs
+  // in the header line — the old standalone paragraph spent a whole row saying
+  // the same thing.
   return (
     <BottomSheet
       open={isOpen}
       onClose={onClose}
       title="Review Order"
-      subtitle="Confirm location to deliver food"
+      subtitle={
+        hasTableContext
+          ? `Table ${tableLabel} · scanned from the QR`
+          : "Takeaway order"
+      }
       maxHeightClass="max-h-[90vh]"
     >
       <form
@@ -567,88 +571,67 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           </div>
         </div>
 
-        {/* The table comes from the QR code — there is nothing to type, and the
-            server refuses a dine-in order that does not carry one. */}
-        {hasTableContext && (
-          <p className="text-xs font-semibold text-neutral-500">
-            Ordering for <span className="text-neutral-800">Table {tableLabel}</span> — from the QR
-            code on your table.
-          </p>
-        )}
-        {/* Payment — the owner decides which options exist. When both are on,
-            the guest chooses here and the choice is stored on the order; the
-            server refuses a method the restaurant does not accept.
+        {/* Payment — rendered only when the owner has BOTH options on, because
+            then it is a real decision for this guest. With one option the
+            restaurant has already answered it, so the whole section (heading,
+            loading text, failure text) is omitted and the CTA alone carries the
+            consequence: "Place Order & Pay" for prepaid UPI, "Place Order" for
+            cash. Adding a one-line explanation here only made the sheet taller
+            and repeated what the button already said.
 
-            Deliberately a segmented control, not two cards. Payment is one
-            binary decision, and the card treatment made it read as a second
-            copy of Order Type while claiming ~120px of a sheet that is already
-            tall; it also repeated the total inside the UPI card. When only one
-            method is enabled there is no decision to show at all, so the plain
-            line below does the whole job in one row. */}
-        <div>
-          <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-2">
-            Payment
-          </p>
-
-          {!paymentOptions && !paymentOptionsFailed && (
-            <p className="text-xs font-semibold text-neutral-400">Loading payment options…</p>
-          )}
-
-          {paymentOptionsFailed && (
-            <p className="text-xs font-semibold text-neutral-400">
-              Couldn't load payment options. The restaurant will collect payment.
+            Deliberately a segmented control, not two cards: payment is one
+            binary decision, and the card treatment read as a second copy of
+            Order Type while claiming ~120px of an already tall sheet. */}
+        {paymentOptions?.accepts_cash && paymentOptions.accepts_upi_prepaid && (
+          <div>
+            <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-2">
+              Payment
             </p>
-          )}
 
-          {paymentOptions && paymentOptions.accepts_cash && paymentOptions.accepts_upi_prepaid && (
-            <>
-              <div
-                role="group"
-                aria-label="Payment method"
-                className="flex gap-1 rounded-xl bg-neutral-100 p-1"
+            {/* One sliding thumb instead of two buttons that swap colour. Both
+                the track and the thumb are fully rounded, so the corners match
+                by construction, and the selection glides from one option to the
+                other. The thumb is purely visual: the buttons keep the real hit
+                area and aria-pressed. */}
+            <div
+              role="group"
+              aria-label="Payment method"
+              className="relative flex rounded-full bg-neutral-100 p-1"
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                  paymentMethod === "upi" ? "translate-x-full" : "translate-x-0"
+                }`}
+              />
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("counter")}
+                aria-pressed={paymentMethod === "counter"}
+                className={`relative z-10 flex-1 rounded-full px-3 py-2.5 text-xs font-bold transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                  paymentMethod === "counter"
+                    ? "text-neutral-900"
+                    : "text-neutral-500 hover:text-neutral-700"
+                }`}
               >
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("counter")}
-                  aria-pressed={paymentMethod === "counter"}
-                  className={`flex-1 rounded-[10px] px-3 py-2.5 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
-                    paymentMethod === "counter"
-                      ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5"
-                      : "text-neutral-500 hover:text-neutral-700"
-                  }`}
-                >
-                  Pay at counter
-                </button>
+                Pay at counter
+              </button>
 
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("upi")}
-                  aria-pressed={paymentMethod === "upi"}
-                  className={`flex-1 rounded-[10px] px-3 py-2.5 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
-                    paymentMethod === "upi"
-                      ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5"
-                      : "text-neutral-500 hover:text-neutral-700"
-                  }`}
-                >
-                  Pay via UPI
-                </button>
-              </div>
-            </>
-          )}
-
-          {paymentOptions && paymentOptions.accepts_cash && !paymentOptions.accepts_upi_prepaid && (
-            <p className="text-xs font-semibold text-neutral-500">
-              Pay at the counter after your order.
-            </p>
-          )}
-
-          {paymentOptions && !paymentOptions.accepts_cash && paymentOptions.accepts_upi_prepaid && (
-            <p className="text-xs font-semibold text-neutral-500">
-              Prepaid via UPI — pay {formatCurrency(total)} to{" "}
-              {paymentOptions.upi_payee_name || "the restaurant"} after placing the order.
-            </p>
-          )}
-        </div>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("upi")}
+                aria-pressed={paymentMethod === "upi"}
+                className={`relative z-10 flex-1 rounded-full px-3 py-2.5 text-xs font-bold transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                  paymentMethod === "upi"
+                    ? "text-neutral-900"
+                    : "text-neutral-500 hover:text-neutral-700"
+                }`}
+              >
+                Pay via UPI
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Customer Details */}
         <div>
@@ -753,7 +736,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
               : ""
           }`}
         >
-          Place Order
+          {paymentMethod === "upi" ? "Place Order & Pay" : "Place Order"}
         </Button>
       </div>
     </BottomSheet>

@@ -201,11 +201,11 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
           {!loading && !notRequired && !finished && !unavailable && info && (
             <>
               {/* One amber line, not a card. "Paying {payee} directly" used to
-                  be the heading here, but the footer already says the money
-                  goes straight to the restaurant — so it was the same claim
-                  twice. What survives is the one fact this screen knows and
-                  the footer does not: the exact amount, which every UPI app
-                  lets the payer edit before confirming. */}
+                  be the heading here, but the closing line already says the
+                  money goes straight to the restaurant — so it was the same
+                  claim twice. What survives is the one fact no other line
+                  carries: the exact amount, which every UPI app lets the payer
+                  edit before confirming. */}
               <p className="rounded-xl bg-amber-50/70 px-3.5 py-2.5 text-center text-[11px] font-semibold leading-relaxed text-amber-800">
                 Pay exactly {formatCurrency(amount)} — don't change the amount.
               </p>
@@ -292,9 +292,13 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
                     I have paid
                   </Button>
 
+                  {/* One line, two facts the guest cannot see elsewhere: the
+                      money never passes through us, and staff confirm before
+                      cooking starts. The old pair of paragraphs said the same
+                      thing twice and read as fine print. */}
                   <p className="text-center text-[11px] font-medium leading-relaxed text-neutral-500">
-                    After paying, tap “I have paid”. The restaurant checks its own UPI app
-                    and confirms — your order starts after that.
+                    Money goes straight to {payee} — the kitchen starts after staff
+                    confirms in their UPI app.
                   </p>
                 </>
               ) : (
@@ -306,9 +310,6 @@ const PaymentSheet: React.FC<PaymentSheetProps> = ({ order, onClose }) => {
             </>
           )}
 
-          <p className="text-center text-[11px] font-semibold leading-relaxed text-neutral-500">
-            Money goes directly to {payee} — RasoiQR never holds it.
-          </p>
       </div>
     </BottomSheet>
   );
