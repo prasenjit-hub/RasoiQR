@@ -77,7 +77,11 @@ jobs:
       VITE_TURNSTILE_SITE_KEY: ""
 
     steps:
-      - uses: actions/checkout@v4
+      # v7, not v4: v4 targets the Node 20 action runtime, which GitHub has
+      # deprecated and now silently forces onto Node 24 (the run says so in an
+      # annotation). v5+ is the Node 24 line; v7 is current and nothing in its
+      # changelog touches what this job uses.
+      - uses: actions/checkout@v7
 
       # Node 24, NOT 20 — and this is not cosmetic. The submit-order suite
       # imports the real function source (`supabase/functions/submit-order/index.ts`)
@@ -87,7 +91,7 @@ jobs:
       # `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"` before running
       # a single case — which is exactly what CI run #1 did on 2026-10-30.
       # 24 also matches the machine the suite was written and verified on.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
