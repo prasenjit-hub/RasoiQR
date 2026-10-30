@@ -1,0 +1,91 @@
+name: CI
+
+# Everything that must be true before a commit reaches production.
+#
+# There is no CI/CD in front of Vercel: a push to `main` IS the deploy. That is
+# why this exists. The two bugs found on 2026-10-30 both compiled, both built,
+# and both would have shipped:
+#
+#   · `challenges.cloudflare.com` dropped from the CSP in vercel.json — the page
+#     builds fine, but the Turnstile widget is blocked in the browser and every
+#     order fails.
+#   · an anon/service-role contradiction in the order gate — compiles, builds,
+#     and only shows up when a guest taps Place Order.
+#
+# Neither is a type error, so `tsc` alone cannot see them. The submit-order
+# suite can: it runs the REAL function source (not a copy) against Cloudflare's
+# documented test secrets, and asserts every branch — 503 on a missing secret,
+# 403 on a refused token, fail-open on a Cloudflare outage, and that only an
+# allow-list reaches the RPC.
+#
+# ⚠️ This is an alarm, not a lock. GitHub Actions and Vercel run in parallel, so
+# a red run does not stop the deploy — it tells you within a couple of minutes
+# that it happened. To make this a real gate, add a Vercel "Ignored Build Step"
+# that reads this commit status (see docs/runbooks/order-flow.md).
+#
+# Notifications are GitHub's own: a failed run emails whoever pushed (Settings →
+# Notifications → Actions). No extra setup and no SMTP secret is involved.
+#
+# Deliberately NOT run here: `npm run lint`. The repo carries known warnings
+# (`any` types, set-state-in-effect) that are unaddressed on purpose; a lint
+# step would be red from the very first run and teach everyone to ignore this
+# workflow — which is worse than not having the step.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per branch. Pushing twice in a row should cancel the first, not queue
+# a second build of a commit nobody is going to look at any more.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      # PUBLIC BY DESIGN — both of these ship inside every visitor's bundle, so
+      # there is nothing to protect and no repo secret to configure. They are
+      # here so the compiled output matches production instead of the
+      # `YOUR_SUPABASE_URL` placeholder fallback in src/config/config.ts.
+      # Keep them in step with .github/workflows/order-gate-health.yml.
+      VITE_SUPABASE_URL: https://yoyiwaszogpdheuaftag.supabase.co
+      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlveWl3YXN6b2dwZGhldWFmdGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMzE4NTksImV4cCI6MjA5NTkwNzg1OX0.pdCJ2k0WvhFby0iUklopzuR_3-qv99iQrn0URW7iC1A
+      # Production-like build: demo mode must never be on in a shipped bundle.
+      VITE_DEMO_MODE: "false"
+      # Turnstile is off during the build on purpose — the gate is exercised by
+      # the tests below, not by the bundle. A CI build must not depend on a
+      # Cloudflare key existing.
+      VITE_TURNSTILE_SITE_KEY: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b --noEmit
+
+      # 17 cases. Three of them call the live challenges.cloudflare.com/siteverify
+      # endpoint with Cloudflare's own test secrets, so a red result here can
+      # also mean "Cloudflare is having a bad day" rather than "this commit is
+      # broken" — the suite names which case failed, so read the step log before
+      # blaming the commit.
+      - name: Order gate tests
+        run: npm run verify:submit-order
+
+      - name: Build
+        run: npm run build
