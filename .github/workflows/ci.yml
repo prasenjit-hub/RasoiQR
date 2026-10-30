@@ -8,7 +8,8 @@ name: CI
 #
 #   · `challenges.cloudflare.com` dropped from the CSP in vercel.json — the page
 #     builds fine, but the Turnstile widget is blocked in the browser and every
-#     order fails.
+#     order fails. Caught by the `Order gate CSP` step below, which reads the
+#     policy itself; nothing else can see a header.
 #   · an anon/service-role contradiction in the order gate — compiles, builds,
 #     and only shows up when a guest taps Place Order.
 #
@@ -101,6 +102,12 @@ jobs:
 
       - name: Typecheck
         run: npx tsc -b --noEmit
+
+      # The policy is deployed, not compiled: `tsc` and the build cannot see an
+      # HTTP header, which is how the 2026-10-30 CSP bug shipped green. A static
+      # read of vercel.json — no network, no browser, no Supabase key.
+      - name: Order gate CSP
+        run: npm run verify:csp
 
       # 17 cases. Three of them call the live challenges.cloudflare.com/siteverify
       # endpoint with Cloudflare's own test secrets, so a red result here can

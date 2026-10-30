@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "verify:cloudinary-sign": "node scripts/verify-cloudinary-sign.mjs",
+    "verify:csp": "node scripts/check-csp.mjs",
     "verify:submit-order": "node scripts/verify-submit-order.mjs"
   },
   "dependencies": {

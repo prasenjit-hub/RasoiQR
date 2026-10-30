@@ -167,6 +167,17 @@ check".
 **frame-src** and **connect-src**. Remove it and the browser blocks the widget:
 no token → every order fails.
 
+**Checked automatically:** `npm run verify:csp` reads the policy and fails if the
+host is missing from any of the three — resolving `child-src` and `default-src`
+fallbacks the way a browser does, so an inherited policy passes and a lookalike
+host (`challenges.cloudflare.com.evil.com`) does not. CI runs it as **Order gate
+CSP** on every push. It exists because nothing else can see this: on 2026-10-30
+the host was dropped and the commit typechecked, built and deployed green.
+
+⚠️ The check is static. It cannot prove the *deployed* header matches this file
+(a Vercel project-level header would override it) — after changing the CSP,
+confirm on a live menu page: `curl -sI https://<domain>/ | grep -i content-security-policy`.
+
 ## Backups (Free plan)
 
 The Free plan has **no server-side backups** — this job is the only copy.
