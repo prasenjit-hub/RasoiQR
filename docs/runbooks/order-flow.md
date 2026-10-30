@@ -62,6 +62,39 @@ Verify: a menu page loads and `input[name="cf-turnstile-response"]` is absent.
 revoke execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text) from anon;
 ```
 
+## The deploy gate — CLOSED since 2026-10-30
+
+`vercel.json` sets `git.deploymentEnabled: { "main": false }`, so a push to
+`main` no longer deploys. The **only** path to production is the last CI step,
+which fires the Vercel Deploy Hook, and that step runs only after every check is
+green. A red commit therefore never ships and the last good deployment keeps
+serving.
+
+| GitHub secret (Settings → Secrets and variables → Actions) | Value |
+|---|---|
+| `VERCEL_DEPLOY_HOOK_URL` | Vercel → Settings → Git → Deploy Hooks → hook for `main` |
+
+Only `main` is switched off, so **PR previews still deploy** exactly as before
+(there is no `github.enabled` block, and there must never be one — that setting
+does stop Deploy Hooks; `git.deploymentEnabled` does not).
+
+### When the deploy step goes red
+
+`::error::vercel.json sets git.deploymentEnabled=false but
+VERCEL_DEPLOY_HOOK_URL is not set` — the SECRET is missing or misspelled, the
+policy is fine. Nothing shipped (the old deployment serves). Fix the secret and
+re-run the job; do **not** start by reverting the flag.
+
+If the hook answers but Vercel's build fails, the run still shows green — the
+hook only accepted the request. **Vercel → Deployments** is where that failure
+appears.
+
+### Take the gate back OFF
+
+Set `"main": true` (or delete the `git` block) and push. That commit's own
+config re-enables git deploys, so Vercel ships it without the hook and every
+later push deploys as before.
+
 ## Rotate the Turnstile secret
 
 Cloudflare → Turnstile → widget → **Rotate secret** → copy it →

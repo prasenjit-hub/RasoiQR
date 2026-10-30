@@ -19,15 +19,15 @@ name: CI
 # 403 on a refused token, fail-open on a Cloudflare outage, and that only an
 # allow-list reaches the RPC.
 #
-# ⚠️ This is a deploy gate, in two ordered phases (docs/runbooks/order-flow.md).
-# The last step fires a Vercel **Deploy Hook**, so it only ever runs once every
-# check above is green. As soon as `git.deploymentEnabled` is `false` in
-# vercel.json, Vercel stops deploying on push entirely and that hook is the only
-# path to production — a red commit then simply never ships, and the previous
-# deployment stays live. Until the flag is flipped this step is a warning: the
-# Git integration still deploys every push, so nothing is blocked yet. The order
-# matters — flip the flag before the hook secret exists and deployments stop
-# dead, silently.
+# ⚠️ This is a deploy gate, in two ordered phases (docs/runbooks/order-flow.md),
+# and since 2026-10-30 it is CLOSED. The last step fires a Vercel **Deploy
+# Hook**, so it only ever runs once every check above is green. `vercel.json`
+# sets `git.deploymentEnabled: { "main": false }`, so Vercel no longer deploys a
+# push to main by itself and that hook is the only path to production — a red
+# commit simply never ships, and the previous deployment stays live. Other
+# branches are untouched, so PR previews keep working. The order matters — flip
+# the flag before the hook secret exists and deployments stop dead, silently,
+# which is why the step below treats "closed but no secret" as an ERROR.
 #
 # ⚠️ Deliberately NOT Vercel's "Ignored Build Step" (`ignoreCommand`). It runs
 # BEFORE the build, seconds after the push, while CI is still going — it has no
@@ -139,7 +139,9 @@ jobs:
           # the script, which would look like a failed deploy, not a missing
           # secret. GitHub sets it to an empty string, but a local run does not.
           if [ -z "${VERCEL_DEPLOY_HOOK_URL:-}" ]; then
-            if node -e 'const v=require("./vercel.json"); process.exit(v.git?.deploymentEnabled === false ? 0 : 1)'; then
+            # Both spellings of "closed": the global boolean, and the per-branch
+            # object this repo uses so that PR previews keep deploying.
+            if node -e 'const d=require("./vercel.json").git?.deploymentEnabled; process.exit((d===false || (d!==null && typeof d==="object" && d.main===false)) ? 0 : 1)'; then
               echo "::error::vercel.json sets git.deploymentEnabled=false but VERCEL_DEPLOY_HOOK_URL is not set — this commit will NOT reach production."
               exit 1
             fi
