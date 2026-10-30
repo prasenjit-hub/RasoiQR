@@ -19,6 +19,12 @@ import TurnstileWidget from "./TurnstileWidget";
 // is a genuine stall rather than browsing.
 const CHECKOUT_IDLE_MS = 5_000;
 
+// How long a tapped "Place Order" waits for Cloudflare's token before giving up.
+// On a phone the widget is often still solving in the background when the guest
+// taps, and refusing that tap made them tap twice for no reason. Waiting is
+// invisible when the token is already there and rarely costs more than a moment.
+const TURNSTILE_WAIT_MS = 6_000;
+
 // ---- Customer identity persistence (repeat-customer auto-fill) ----
 // ONLY name + phone are persisted. The table is NEVER stored — it always comes
 // fresh from the table's QR code (?t=<code>) on every scan, and the server is
@@ -223,17 +229,52 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   // current value without a stale closure.
   const [turnstileNonce, setTurnstileNonce] = useState(0);
   const [turnstileUnavailable, setTurnstileUnavailable] = useState(false);
+  // True while a tapped submit is waiting for the token. It disables the CTA so
+  // the wait cannot be paid for with a second tap.
+  const [waitingForToken, setWaitingForToken] = useState(false);
   const turnstileTokenRef = useRef<string | null>(null);
+  const tokenWaiters = useRef<Array<(token: string | null) => void>>([]);
+
+  // Resolve everyone waiting for a token the moment one (dis)appears, so the
+  // submit continues immediately instead of sitting out the whole timeout.
+  const settleTokenWaiters = (token: string | null) => {
+    const waiters = tokenWaiters.current;
+    tokenWaiters.current = [];
+    waiters.forEach((resolve) => resolve(token));
+  };
+
+  const waitForToken = (timeoutMs: number) =>
+    new Promise<string | null>((resolve) => {
+      if (turnstileTokenRef.current) {
+        resolve(turnstileTokenRef.current);
+        return;
+      }
+
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (token: string | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        tokenWaiters.current = tokenWaiters.current.filter((w) => w !== finish);
+        resolve(token);
+      };
+
+      timer = setTimeout(() => finish(null), timeoutMs);
+      tokenWaiters.current.push(finish);
+    });
 
   // A ref, not state: the token is read imperatively at submit time and nothing
   // on screen depends on it, so re-rendering the whole sheet every time
   // Cloudflare refreshes a token would be pure cost.
   const handleTurnstileToken = (token: string | null) => {
     turnstileTokenRef.current = token;
+    settleTokenWaiters(token);
   };
 
   const resetTurnstile = () => {
     turnstileTokenRef.current = null;
+    settleTokenWaiters(null);
     setTurnstileUnavailable(false);
     setTurnstileNonce((n) => n + 1);
   };
@@ -399,8 +440,15 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
         return;
       }
       if (!turnstileTokenRef.current) {
-        setError("One moment — finishing the security check. Please tap Place Order again.");
-        return;
+        // The widget is usually still solving when the guest taps. Wait for its
+        // token instead of turning that tap into an error they must repeat.
+        setWaitingForToken(true);
+        const token = await waitForToken(TURNSTILE_WAIT_MS);
+        setWaitingForToken(false);
+        if (!token) {
+          setError("One moment — finishing the security check. Please tap Place Order again.");
+          return;
+        }
       }
     }
 
@@ -728,6 +776,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           form="checkout-form"
           type="submit"
           loading={loading}
+          disabled={waitingForToken}
           fullWidth
           className={`rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider ${
             // Never nudge a button that is already submitting.
@@ -736,7 +785,11 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
               : ""
           }`}
         >
-          {paymentMethod === "upi" ? "Place Order & Pay" : "Place Order"}
+          {waitingForToken
+            ? "Finishing security check…"
+            : paymentMethod === "upi"
+              ? "Place Order & Pay"
+              : "Place Order"}
         </Button>
       </div>
     </BottomSheet>
