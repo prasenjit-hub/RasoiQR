@@ -9,8 +9,8 @@ this before changing the gate, the CSP or the RPC grants.
 customer checkout
   → submit-order          (Supabase edge function, verifies the Cloudflare token)
   → customer_create_order (SECURITY DEFINER RPC: pricing, trial/block guards,
-                           table code, phone cap, idempotency)
-  → orders
+                           table code, phone cap, idempotency, payment method)
+  → orders                (cash: ready for Accept · UPI: waits for the money)
 ```
 
 ⚠️ **Since 2026-10-30 `anon` has no EXECUTE on `customer_create_order`.** The
@@ -35,6 +35,42 @@ Two probes, no side effects (no order is ever created):
 hourly and emails the repository owner on failure. It also keeps a Free-plan
 project from pausing after 7 idle days.
 
+## Direct UPI orders (migration 050)
+
+The restaurant can take money **before** cooking. There is no gateway and no
+webhook: the guest pays the restaurant's own VPA, and the money is the only
+evidence.
+
+```
+guest chooses UPI at checkout → order is created (payment_status = 'pending')
+  → guest pays in their UPI app → taps “I have paid”   (payment_status = 'claimed')
+  → staff checks the restaurant's UPI app → “Payment received”  ('paid')
+  → only then Accept works (transition_order_status refuses it before that)
+```
+
+⚠️ **No public API verifies a UPI reference**, so the guest's tap is a *claim*.
+Never automate `paid`, never infer it from a number the guest types, and never
+accept the order on the guest's word: the staff member's own UPI app is the
+verification step.
+
+| Situation | What happens | What to do |
+|---|---|---|
+| Guest paid, did not tap | stays `pending`, then **expires after 20 min** | Orders → the order is cancelled; ask the guest to order again, or record the payment and refund it. |
+| Guest tapped, money not there | `claimed` | Orders → **No payment found**. The guest sees “pay at the counter”; the order is never auto-cancelled while claimed. |
+| Money arrived after “No payment found” | `failed` | Orders → **Payment received** still works; then Accept. |
+| UPI misconfigured mid-service | checkout offers only what the owner enabled | Owner → Settings → Payments → turn **UPI prepaid** off. Guests fall back to cash immediately, no deploy. |
+
+**Expiry job:** `select jobname, schedule, active from cron.job where jobname = 'expire-unpaid-orders';`
+— every 5 minutes, it cancels `pending` UPI orders older than 20 minutes and
+sets `payment_status = 'expired'`. `claimed` orders are deliberately left alone.
+Expired/cancelled orders never count toward the 10/hour phone cap.
+
+**Owner setup:** Settings → **Payments** → “Pay at counter” / “UPI prepaid” +
+the UPI ID and payee name. The database refuses “both off” and “UPI on without
+a UPI ID”. The UPI ID a guest sees is read **live** from the restaurant row, so
+fixing a typo takes effect on the next payment sheet — an order already paid to
+the old ID is still recorded by marking it received.
+
 ## Turn the gate OFF (emergency)
 
 ⚠️ **The order matters.** Do step 1 first — otherwise guests get *permission
@@ -42,7 +78,7 @@ denied* until it lands.
 
 ```sql
 -- 1. let the browser call the RPC directly again (the pre-Turnstile path)
-grant execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text) to anon;
+grant execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text, text) to anon;
 ```
 
 2. Vercel → Settings → Environment Variables → delete `VITE_TURNSTILE_SITE_KEY`
@@ -59,7 +95,7 @@ Verify: a menu page loads and `input[name="cf-turnstile-response"]` is absent.
 4. Re-close the bypass:
 
 ```sql
-revoke execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text) from anon;
+revoke execute on function public.customer_create_order(uuid, text, text, text, text, text, jsonb, uuid, text, text) from anon;
 ```
 
 ## The deploy gate — CLOSED since 2026-10-30

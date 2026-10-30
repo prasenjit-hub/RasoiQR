@@ -9,6 +9,7 @@ import {
   MessageSquare,
   ChefHat,
   ShoppingBag,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Card,
@@ -20,12 +21,35 @@ import {
   Alert,
 } from "../../components/ui";
 import {
+  setOrderPaymentStatus,
   subscribeToOrders,
   updateOrderStatus,
 } from "../../services/restaurantService";
 import type { Order } from "../../config/supabase";
 import { formatDateTime, formatCurrency } from "../../utils/helpers";
 import { useAuth } from "../../contexts/AuthContext";
+
+/** UPI orders carry their own badge, so an unpaid one is visible in the list. */
+const getPaymentBadge = (order: Order) => {
+  const status = order.payment_status;
+  if (status === "paid") {
+    return <Badge variant="success">UPI paid</Badge>;
+  }
+  if (status === "claimed") {
+    return <Badge variant="warning">UPI · check app</Badge>;
+  }
+  if (status === "failed") {
+    return <Badge variant="error">UPI · not found</Badge>;
+  }
+  if (status === "expired") {
+    return <Badge variant="neutral">UPI expired</Badge>;
+  }
+  return <Badge variant="warning">UPI unpaid</Badge>;
+};
+
+/** Kitchen may not start until the restaurant has confirmed the money. */
+const awaitingUpiPayment = (order: Order) =>
+  order.payment_method === "upi" && order.payment_status !== "paid";
 
 const Orders: React.FC = () => {
   const { restaurant } = useAuth();
@@ -62,10 +86,38 @@ const Orders: React.FC = () => {
     });
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
-    const success = await updateOrderStatus(orderId, newStatus);
-    if (!success) {
-      alert("Failed to update order status");
+    const result = await updateOrderStatus(orderId, newStatus);
+    if (!result.ok) {
+      // The RPC's own sentence (e.g. "Payment has not been received yet…")
+      // is the actionable one; only fall back for a transport failure.
+      alert(result.error || "Failed to update order status");
     }
+  };
+
+  /**
+   * Migration 050: staff confirm the money landed in the restaurant's OWN UPI
+   * app. This is what unlocks Accept — the kitchen is held back server-side
+   * until then, so a bug here cannot start cooking an unpaid order.
+   */
+  const handleMarkPaid = async (order: Order) => {
+    const amount = formatCurrency(order.total);
+    if (
+      !window.confirm(
+        `Confirm you can see ${amount} from ${
+          order.customer_name || "this guest"
+        } in your UPI app.`
+      )
+    ) {
+      return;
+    }
+
+    const result = await setOrderPaymentStatus(order.id, "paid");
+    if (!result.ok) alert(result.error || "Could not record the payment.");
+  };
+
+  const handleMarkNotReceived = async (order: Order) => {
+    const result = await setOrderPaymentStatus(order.id, "failed");
+    if (!result.ok) alert(result.error || "Could not update the payment.");
   };
 
   const handleViewDetails = (order: Order) => {
@@ -227,7 +279,10 @@ const Orders: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    {getStatusBadge(order.status)}
+                    <div className="flex flex-col items-end gap-2">
+                      {order.payment_method === "upi" && getPaymentBadge(order)}
+                      {getStatusBadge(order.status)}
+                    </div>
                   </div>
 
                   {/* Details */}
@@ -295,10 +350,41 @@ const Orders: React.FC = () => {
 
                   {order.status === "pending" && (
                     <>
+                      {order.payment_method === "upi" && order.payment_status !== "paid" && (
+                        <>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            fullWidth
+                            icon={<ShieldCheck className="w-4 h-4" />}
+                            onClick={() => handleMarkPaid(order)}
+                          >
+                            Payment received
+                          </Button>
+                          <p className="text-[10px] font-medium leading-tight text-text-secondary text-center">
+                            {order.payment_status === "claimed"
+                              ? "Guest says they paid — check your UPI app."
+                              : order.payment_status === "failed"
+                              ? "No payment found — settle it at the counter."
+                              : "Waiting for the guest's UPI payment."}
+                          </p>
+                          {order.payment_status === "claimed" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              fullWidth
+                              onClick={() => handleMarkNotReceived(order)}
+                            >
+                              No payment found
+                            </Button>
+                          )}
+                        </>
+                      )}
                       <Button
                         variant="secondary"
                         size="sm"
                         fullWidth
+                        disabled={awaitingUpiPayment(order)}
                         onClick={() => handleStatusUpdate(order.id, "accepted")}
                       >
                         Accept
@@ -546,12 +632,22 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         {order.payment_method && (
           <div>
             <h4 className="font-semibold text-text mb-2">Payment</h4>
-            <p className="text-text-secondary text-sm">
-              Method: {order.payment_method}
-            </p>
+            <div className="flex items-center justify-between gap-2 text-sm text-text-secondary">
+              <span>
+                {order.payment_method === "upi"
+                  ? "UPI (prepaid, direct to your account)"
+                  : "Cash at counter"}
+              </span>
+              {order.payment_method === "upi" && getPaymentBadge(order)}
+            </div>
+            {order.payment_method === "upi" && order.payment_status !== "paid" && (
+              <p className="mt-2 text-xs font-medium text-warning">
+                Accept stays blocked until a staff member confirms the payment.
+              </p>
+            )}
             {order.payment_transaction_id && (
               <p className="text-text-secondary text-sm">
-                Transaction ID: {order.payment_transaction_id}
+                UTR: {order.payment_transaction_id}
               </p>
             )}
           </div>

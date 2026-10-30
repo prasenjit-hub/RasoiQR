@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, Alert } from "../../components/ui";
 import { useAuth } from "../../contexts/AuthContext";
 import QRCodeManager from "./components/QRCodeManager";
+import RestaurantPaymentCard from "./components/RestaurantPaymentCard";
 import RestaurantProfileCard from "./components/RestaurantProfileCard";
 
 const RestaurantSettings: React.FC = () => {
@@ -25,6 +26,10 @@ const RestaurantSettings: React.FC = () => {
       {/* Profile & branding — the owner's own write path (migration 034) */}
       <RestaurantProfileCard />
 
+      {/* How guests pay (migration 050). Direct UPI: the owner's VPA receives
+          the money, and a staff member confirms each transfer in Orders. */}
+      <RestaurantPaymentCard />
+
       {/* QR Codes — master menu QR + one per table, in a single card. The table
           count comes from the owner's declaration (migration 044) so a printed
           QR can never point at a table the server refuses at checkout. */}
@@ -40,7 +45,6 @@ const RestaurantSettings: React.FC = () => {
         <ul className="space-y-2 text-text-secondary text-sm">
           <li>• Customize ordering page theme</li>
           <li>• Set business hours and holidays</li>
-          <li>• Configure payment methods</li>
         </ul>
         <p className="mt-4 text-sm text-text-secondary">
           Want to change your password?{" "}

@@ -247,6 +247,8 @@ const validOrder = {
   p_items: [{ menu_item_id: "22222222-2222-2222-2222-222222222222", quantity: 1 }],
   p_client_ref: "33333333-3333-3333-3333-333333333333",
   p_table_code: null,
+  // Migration 050 — the checkout's cash/UPI choice must survive the hop too.
+  p_payment_method: "counter",
 };
 
 console.log("=== submit-order bot-gate test ===");

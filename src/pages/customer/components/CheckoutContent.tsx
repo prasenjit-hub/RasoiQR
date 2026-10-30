@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { X, UtensilsCrossed, ShoppingBag, UserRound, Phone } from "lucide-react";
+import { X, UtensilsCrossed, ShoppingBag, UserRound, Phone, Smartphone, Wallet } from "lucide-react";
 import { Alert, Button, Input } from "../../../components/ui";
-import { createOrderAsCustomer } from "../../../services/restaurantService";
+import {
+  createOrderAsCustomer,
+  getOrderPaymentInfo,
+  getRestaurantPaymentOptions,
+  type RestaurantPaymentOptions,
+} from "../../../services/restaurantService";
 import { formatCurrency, isValidPhone, newIdempotencyRef } from "../../../utils/helpers";
 import type { CartItem } from "../CustomerMenu";
 import { persistentStorage } from "../../../utils/persistentStorage";
@@ -94,6 +99,20 @@ export const customerOrderErrorMessage = (serverMessage?: string): string => {
   if (message.includes("at least one item")) {
     return "Your cart is empty. Please add an item before ordering.";
   }
+  // Migration 050: the owner can change the two switches while a checkout is
+  // open. Both refusals name the action the guest can take.
+  if (message.includes("does not accept upi prepaid")) {
+    return "This restaurant isn't taking UPI prepaid orders right now. Please choose Pay at counter, or ask a member of staff.";
+  }
+  if (message.includes("accepts upi prepaid orders only")) {
+    // Reachable when the options fetch failed (the selector never appeared) or
+    // the owner switched to UPI-only while this checkout was open. Both need a
+    // refresh to get the selector back.
+    return "This restaurant is taking UPI prepaid orders only right now. Please refresh the page and choose Pay now via UPI.";
+  }
+  if (message.includes("invalid payment method")) {
+    return "Please choose how you'd like to pay and try again.";
+  }
 
   // Network-level failures reach this function as an error object too (the
   // Supabase client turns a rejected fetch into `{ data: null, error }`), so
@@ -133,6 +152,12 @@ export interface PlacedOrderInfo {
    * null for takeaway / Master-QR orders.
    */
   tableNumber: string | null;
+  /**
+   * Migration 050: the order is UPI prepaid, so the parent must open the
+   * payment sheet instead of just toasting. Read back from the server, not
+   * inferred — the server is the authority on what was stored.
+   */
+  paymentRequired: boolean;
 }
 
 // Checkout Panel Component (Slide-up Content)
@@ -140,6 +165,8 @@ interface CheckoutContentProps {
   isOpen: boolean;
   cart: CartItem[];
   restaurantId: string;
+  /** Migration 050: used to ask what payment options the owner turned on. */
+  slug: string;
   /**
    * Migration 045: the table is identified by the CODE its QR carries
    * (`?t=<code>`). Present only when the server resolved it — an unknown or
@@ -161,6 +188,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   isOpen,
   cart,
   restaurantId,
+  slug,
   tableCode,
   tableLabel,
   onClose,
@@ -180,6 +208,12 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  // Migration 050 — the owner's switches decide what this section shows.
+  // `null` while loading; a failure falls back to cash, never blocks ordering.
+  const [paymentOptions, setPaymentOptions] = useState<RestaurantPaymentOptions | null>(null);
+  const [paymentOptionsFailed, setPaymentOptionsFailed] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"counter" | "upi">("counter");
 
   // ---- Turnstile (bot gate, optional) --------------------------------------
   // `nonce` is the widget's React key: bumping it remounts the widget, which is
@@ -260,6 +294,31 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
     }
     setPrevIsOpen(isOpen);
   }, [isOpen, prevIsOpen]);
+
+  // Migration 050 — fetched per open, because the owner can change the switches
+  // between two guests. A failure is not fatal: cash is the fallback, and the
+  // order RPC refuses a method the restaurant no longer accepts.
+  useEffect(() => {
+    if (!isOpen || !slug) return;
+
+    let cancelled = false;
+    setPaymentOptions(null);
+    setPaymentOptionsFailed(false);
+
+    void getRestaurantPaymentOptions(slug).then((options) => {
+      if (cancelled) return;
+      if (!options) {
+        setPaymentOptionsFailed(true);
+        return;
+      }
+      setPaymentOptions(options);
+      setPaymentMethod(options.accepts_cash ? "counter" : "upi");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, slug]);
 
   // If the table context ever disappears (code rotated or rejected while the
   // page was open), fall back to Takeaway so Dine-in is never left selected
@@ -357,6 +416,9 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
       // again.
       const attemptKey = JSON.stringify({
         orderType,
+        // A different method is a different order attempt, so it gets a fresh
+        // idempotency reference (039) instead of replaying the old one.
+        paymentMethod,
         tableCode: orderType === "table" ? tableCode : null,
         name: customerName.trim(),
         phone: customerPhone.trim(),
@@ -372,6 +434,7 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
       const { data, error: orderError } = await createOrderAsCustomer({
         restaurantId,
         orderType: orderType === "table" ? "qr" : "counter",
+        paymentMethod,
         tableCode: orderType === "table" ? tableCode ?? undefined : undefined,
         customerName,
         customerPhone,
@@ -394,10 +457,18 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
           // Storage unavailable — ignore; the debounced saves likely persisted it.
         }
 
+        // The method is stored on the order; read it back rather than trusting
+        // the local state. A failed read must not fail an order that already
+        // exists, so it falls back to the choice we sent.
+        const paymentInfo = data[0].order_id
+          ? await getOrderPaymentInfo(data[0].order_id)
+          : null;
+
         const placed: PlacedOrderInfo = {
           orderId: data[0].order_id ?? null,
           orderNumber: data[0].order_number ?? null,
           tableNumber: orderType === "table" ? tableLabel ?? null : null,
+          paymentRequired: paymentInfo?.payment_required ?? paymentMethod === "upi",
         };
 
         // This attempt is spent: forget its reference so the next order starts
@@ -516,6 +587,77 @@ const CheckoutContent: React.FC<CheckoutContentProps> = ({
             code on your table.
           </p>
         )}
+        {/* Payment — the owner decides which options exist. When both are on,
+            the guest chooses here and the choice is stored on the order; the
+            server refuses a method the restaurant does not accept. */}
+        <div>
+          <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-2">
+            Payment
+          </p>
+
+          {!paymentOptions && !paymentOptionsFailed && (
+            <p className="text-xs font-semibold text-neutral-400">Loading payment options…</p>
+          )}
+
+          {paymentOptionsFailed && (
+            <p className="text-xs font-semibold text-neutral-400">
+              Couldn't load payment options. The restaurant will collect payment.
+            </p>
+          )}
+
+          {paymentOptions && paymentOptions.accepts_cash && paymentOptions.accepts_upi_prepaid && (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("counter")}
+                aria-pressed={paymentMethod === "counter"}
+                className={`p-4 rounded-2xl border-2 font-bold transition-all text-xs flex flex-col items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                  paymentMethod === "counter"
+                    ? "border-amber-500 bg-amber-50/40 text-amber-900 shadow-sm"
+                    : "border-gray-200 hover:border-neutral-300 text-neutral-500 bg-white"
+                }`}
+              >
+                <Wallet className="w-5 h-5" strokeWidth={2} />
+                <span>Pay at counter</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                  Cash / card
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("upi")}
+                aria-pressed={paymentMethod === "upi"}
+                className={`p-4 rounded-2xl border-2 font-bold transition-all text-xs flex flex-col items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                  paymentMethod === "upi"
+                    ? "border-amber-500 bg-amber-50/40 text-amber-900 shadow-sm"
+                    : "border-gray-200 hover:border-neutral-300 text-neutral-500 bg-white"
+                }`}
+              >
+                <Smartphone className="w-5 h-5" strokeWidth={2} />
+                <span>Pay now via UPI</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                  {formatCurrency(total)} to{" "}
+                  {paymentOptions.upi_payee_name || "the restaurant"}
+                </span>
+              </button>
+            </div>
+          )}
+
+          {paymentOptions && paymentOptions.accepts_cash && !paymentOptions.accepts_upi_prepaid && (
+            <p className="text-xs font-semibold text-neutral-500">
+              Pay at the counter after your order.
+            </p>
+          )}
+
+          {paymentOptions && !paymentOptions.accepts_cash && paymentOptions.accepts_upi_prepaid && (
+            <p className="text-xs font-semibold text-neutral-500">
+              Prepaid via UPI — pay {formatCurrency(total)} to{" "}
+              {paymentOptions.upi_payee_name || "the restaurant"} after placing the order.
+            </p>
+          )}
+        </div>
+
         {/* Customer Details */}
         <div>
           <label htmlFor="checkout-name" className="mb-2 block text-sm font-medium text-slate-700">

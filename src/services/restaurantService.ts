@@ -54,13 +54,25 @@ export const subscribeToOrders = (
 // the transition_order_status RPC only. Payment columns are written once, by
 // customer_create_order, and guard_order_columns rejects any later change — so
 // there is deliberately no direct orders.update() path here.
-export const updateOrderStatus = async (orderId: string, status: string) => {
+/**
+ * Owner: move an order through its state machine.
+ *
+ * The message matters, not just the boolean: since migration 050 the RPC also
+ * refuses `pending → accepted` for an unpaid UPI order with a sentence the
+ * staff must read ("Payment has not been received yet…"). Collapsing that into
+ * a generic "failed" alert sends the owner hunting for a bug instead of
+ * checking their UPI app.
+ */
+export const updateOrderStatus = async (
+  orderId: string,
+  status: string
+): Promise<{ ok: boolean; error?: string }> => {
   const { error } = await supabase.rpc("transition_order_status", {
     p_order_id: orderId,
     p_new_status: status,
   });
 
-  return !error;
+  return error ? { ok: false, error: error.message } : { ok: true };
 };
 
 /**
@@ -610,6 +622,12 @@ export const createOrderAsCustomer = async (params: {
   restaurantId: string;
   orderType: "qr" | "counter";
   /**
+   * Migration 050: the guest's choice at checkout. The server validates it
+   * against the owner's two switches and stores it on the order. An old client
+   * that omits it falls back to the RPC's DEFAULT 'counter'.
+   */
+  paymentMethod: "counter" | "upi";
+  /**
    * Migration 045: the code from the table's QR (`/menu/<slug>?t=<code>`).
    * Required for a dine-in order — the server refuses `qr`/`table` without it —
    * and ignored for takeaway, which has no table to walk to. It never sends a
@@ -652,6 +670,8 @@ export const createOrderAsCustomer = async (params: {
     p_items: params.items,
     p_client_ref: params.clientRef,
     p_table_code: params.tableCode ?? null,
+    // Migration 050: fixed at creation — guard_order_columns freezes it after.
+    p_payment_method: params.paymentMethod,
   };
 
   // ── Turnstile off (the default) ───────────────────────────────────────────
@@ -762,4 +782,130 @@ export const setTableActive = async (
   });
 
   if (error) throw new Error(error.message);
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Direct-UPI payments (migration 050)                                       */
+/*                                                                            */
+/*  The money goes to the restaurant's own VPA. RasoiQR never touches it, so   */
+/*  there is no gateway webhook to trust: the guest CLAIMS, and a staff member  */
+/*  confirms in the restaurant's own UPI app.                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface RestaurantPaymentOptions {
+  accepts_cash: boolean;
+  accepts_upi_prepaid: boolean;
+  /** Only the owner RPC returns this; the guest-facing options RPC does not. */
+  upi_id?: string | null;
+  upi_payee_name: string | null;
+}
+
+export interface OrderPaymentInfo {
+  order_id: string;
+  order_number: string;
+  total: number;
+  payment_required: boolean;
+  payment_method: "upi" | "counter" | string | null;
+  payment_status: "pending" | "claimed" | "paid" | "failed" | "expired";
+  payment_claimed_at: string | null;
+  upi_id: string | null;
+  upi_payee_name: string | null;
+  restaurant_name: string;
+  restaurant_slug: string;
+}
+
+/**
+ * What the checkout may offer. Returns null on failure — the caller falls back
+ * to cash (today's flow) rather than blocking ordering on a settings read.
+ */
+export const getRestaurantPaymentOptions = async (
+  slug: string
+): Promise<RestaurantPaymentOptions | null> => {
+  const { data, error } = await supabase.rpc("get_restaurant_payment_options", {
+    p_slug: slug,
+  });
+
+  if (error) {
+    console.error("Error fetching restaurant payment options:", error.message);
+    return null;
+  }
+
+  return firstRow<RestaurantPaymentOptions>(data);
+};
+
+/**
+ * One order's payment view. The order UUID is the capability (the same model
+ * as `get_orders_for_tracking`), and this is where the UPI ID is read for the
+ * payment screen — selected explicitly in the RPC, never a table SELECT.
+ */
+export const getOrderPaymentInfo = async (
+  orderId: string
+): Promise<OrderPaymentInfo | null> => {
+  const { data, error } = await supabase.rpc("get_order_payment_info", {
+    p_order_id: orderId,
+  });
+
+  if (error) {
+    console.error("Error fetching order payment info:", error.message);
+    return null;
+  }
+
+  return firstRow<OrderPaymentInfo>(data);
+};
+
+/**
+ * "I have paid" — a CLAIM, not a confirmation. The kitchen stays closed until
+ * a staff member marks the payment received. Idempotent, so a double tap is a
+ * repeat rather than an error.
+ */
+export const claimUpiPayment = async (
+  orderId: string
+): Promise<{ status: string | null; error: string | null }> => {
+  const { data, error } = await supabase.rpc("customer_claim_upi_payment", {
+    p_order_id: orderId,
+  });
+
+  return {
+    status: typeof data === "string" ? data : null,
+    error: error?.message ?? null,
+  };
+};
+
+/** Owner settings — the only write path to the two switches and the VPA. */
+export const updatePaymentSettings = async (input: {
+  acceptsCash: boolean;
+  acceptsUpiPrepaid: boolean;
+  upiId: string;
+  upiPayeeName: string;
+}): Promise<RestaurantPaymentOptions> => {
+  const { data, error } = await supabase.rpc("owner_update_payment_settings", {
+    p_accepts_cash: input.acceptsCash,
+    p_accepts_upi_prepaid: input.acceptsUpiPrepaid,
+    p_upi_id: input.upiId.trim() || null,
+    p_upi_payee_name: input.upiPayeeName.trim() || null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const row = firstRow<RestaurantPaymentOptions>(data);
+  if (!row) throw new Error("Could not save your payment settings.");
+  return row;
+};
+
+/**
+ * Staff confirmation. Only `paid` can unlock Accept; `failed` records that the
+ * money was checked for and not found. `paid` is terminal (a refund is a
+ * manual UPI transfer, not a status change).
+ */
+export const setOrderPaymentStatus = async (
+  orderId: string,
+  status: "paid" | "failed"
+): Promise<{ ok: boolean; error?: string }> => {
+  const { error } = await supabase.rpc("owner_set_payment_status", {
+    p_order_id: orderId,
+    p_status: status,
+  });
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 };

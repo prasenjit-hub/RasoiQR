@@ -9,7 +9,8 @@ import {
   XCircle,
   ChevronLeft,
   MapPin,
-  RefreshCcw
+  RefreshCcw,
+  ShieldCheck,
 } from "lucide-react";
 import {
   formatCurrency,
@@ -18,6 +19,13 @@ import {
   withTableCode,
 } from "../../utils/helpers";
 import { usePollWhenVisible } from "../../utils/usePollWhenVisible";
+import { Alert, Button } from "../../components/ui";
+import {
+  claimUpiPayment,
+  getOrderPaymentInfo,
+  type OrderPaymentInfo,
+} from "../../services/restaurantService";
+import PaymentSheet from "./components/PaymentSheet";
 
 /** How often a live order's status is re-asked for while the guest watches it.
  *  The kitchen taps a button; 10s is faster than anyone walks to the counter. */
@@ -54,6 +62,14 @@ const CustomerOrderTracking: React.FC = () => {
   /** A background refresh in flight — spins the header button only. */
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
+  // 💸 Migration 050: direct-UPI state. `payment` comes from its own RPC — the
+  // order row never exposes the restaurant's VPA, and a guest must not be able
+  // to read a table for it.
+  const [payment, setPayment] = useState<OrderPaymentInfo | null>(null);
+  const [showPayment, setShowPayment] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
 
   /**
    * `silent` is a refresh of the order already on screen: it must not blank the
@@ -118,6 +134,49 @@ const CustomerOrderTracking: React.FC = () => {
     void loadOrder(Boolean(id && orderSnapshots.has(id)));
   }, [loadOrder, id]);
 
+  /**
+   * The payment view for this order. Re-read whenever the order moves, and on
+   * the same poll as the status — a staff confirmation changes the payment, not
+   * the order status, so polling only the order would leave "Payment pending"
+   * on screen after the kitchen had already been released.
+   */
+  const loadPayment = useCallback(async () => {
+    if (!id) return;
+    setPayment(await getOrderPaymentInfo(id));
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    void loadPayment();
+  }, [id, loadPayment, order?.status]);
+
+  const handleClaim = async () => {
+    if (!id) return;
+
+    const payee = payment?.upi_payee_name || payment?.restaurant_name || "the restaurant";
+    const amount = payment ? formatCurrency(Number(payment.total)) : "the amount";
+    if (
+      !window.confirm(
+        `Only tap OK if you have already paid ${amount} to ${payee}. The restaurant will check its own UPI app.`
+      )
+    ) {
+      return;
+    }
+
+    setClaiming(true);
+    setPaymentError("");
+    const result = await claimUpiPayment(id);
+    setClaiming(false);
+
+    if (result.error) {
+      setPaymentError(result.error);
+      return;
+    }
+
+    await loadPayment();
+    void loadOrder(true);
+  };
+
   // ⚡ Live status. The channel this page used to open could never fire: `anon`
   // has no SELECT on `orders` (migration 033) and no policy grants one, so
   // Realtime had nothing it was allowed to send — the guest only ever saw a
@@ -125,7 +184,10 @@ const CustomerOrderTracking: React.FC = () => {
   // version of the same idea; it stops once the order cannot move again (see
   // usePollWhenVisible for the foreground-only rules).
   usePollWhenVisible(
-    () => loadOrder(true),
+    () => {
+      void loadOrder(true);
+      void loadPayment();
+    },
     TRACKING_POLL_MS,
     Boolean(order) && !isTerminalOrderStatus(order?.status)
   );
@@ -204,7 +266,62 @@ const CustomerOrderTracking: React.FC = () => {
     };
   };
 
-  const statusInfo = getStatusInfo(order.status);
+  const baseStatus = getStatusInfo(order.status);
+
+  // A UPI order that has not been confirmed yet is not "waiting for the
+  // restaurant to confirm the order" — it is waiting for the GUEST. Saying the
+  // wrong one is how a guest sits for ten minutes wondering why nothing cooks.
+  const awaitingPayment =
+    order.status === "pending" &&
+    payment?.payment_required === true &&
+    (payment.payment_status === "pending" || payment.payment_status === "claimed");
+  // A payment the staff checked and could not find is a different problem: the
+  // guest cannot re-claim it, so pointing at the UPI app again would loop.
+  const paymentFailed =
+    order.status === "pending" && payment?.payment_status === "failed";
+  const statusInfo = awaitingPayment
+    ? {
+        icon: <Clock className="w-10 h-10 text-amber-500" />,
+        title:
+          payment?.payment_status === "claimed"
+            ? "Payment under review"
+            : "Waiting for payment",
+        message:
+          payment?.payment_status === "claimed"
+            ? "The restaurant is checking its UPI app. Your order starts once they confirm the payment."
+            : `Pay ${formatCurrency(Number(payment?.total ?? 0))} to ${
+                payment?.upi_payee_name || payment?.restaurant_name || "the restaurant"
+              } to start your order.`,
+        color: "bg-amber-50",
+        border: "border-amber-100",
+      }
+    : paymentFailed
+    ? {
+        icon: <XCircle className="w-10 h-10 text-red-500" />,
+        title: "Payment not received",
+        message:
+          "The restaurant checked and could not find this payment. Please pay at the counter or ask a member of staff.",
+        color: "bg-red-50",
+        border: "border-red-100",
+      }
+    : baseStatus;
+
+  const paymentStatusLabel = (() => {
+    if (!payment) return "—";
+    if (payment.payment_method !== "upi") return "Pay at the counter";
+    switch (payment.payment_status) {
+      case "paid":
+        return "Paid via UPI";
+      case "claimed":
+        return "Submitted — verifying";
+      case "failed":
+        return "Not received";
+      case "expired":
+        return "Expired";
+      default:
+        return "Pending";
+    }
+  })();
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -283,12 +400,71 @@ const CustomerOrderTracking: React.FC = () => {
               <span>Subtotal</span>
               <span>{formatCurrency(order.subtotal)}</span>
             </div>
+            <div className="flex justify-between text-xs font-bold text-gray-500">
+              <span>
+                {payment?.payment_method === "upi" ? "UPI payment" : "Payment"}
+              </span>
+              <span>{paymentStatusLabel}</span>
+            </div>
             <div className="flex justify-between font-black text-lg text-gray-900 pt-2 border-t border-gray-50">
-              <span>Total Paid</span>
+              <span>Total</span>
               <span>{formatCurrency(order.total)}</span>
             </div>
           </div>
         </div>
+
+        {/* 💸 Direct UPI (migration 050). Only an unpaid UPI order needs an
+            action here; once it is paid the summary row already says so. */}
+        {payment?.payment_method === "upi" && payment.payment_status !== "paid" && (
+          <div className="bg-white p-5 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.03)] border border-amber-100">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5 text-amber-500" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  Direct UPI
+                </p>
+                <p className="font-extrabold text-sm text-gray-800">
+                  {paymentStatusLabel} · {formatCurrency(Number(payment.total))}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs font-medium leading-relaxed text-gray-500">
+              {payment.payment_status === "claimed" &&
+                "You told the restaurant you paid. They are checking their own UPI app and will confirm shortly."}
+              {payment.payment_status === "pending" &&
+                "Money goes straight to the restaurant. Pay the exact amount, then mark it as paid."}
+              {payment.payment_status === "failed" &&
+                "The restaurant checked and could not find this payment. Please settle it at the counter or with a member of staff."}
+              {payment.payment_status === "expired" &&
+                "This order expired because the payment did not arrive in time. Please order again."}
+            </p>
+
+            {paymentError && (
+              <div className="mt-3">
+                <Alert type="error" message={paymentError} />
+              </div>
+            )}
+
+            {payment.payment_status === "pending" && (
+              <div className="mt-4 space-y-2">
+                <Button fullWidth onClick={() => setShowPayment(true)}>
+                  Pay now via UPI
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outline"
+                  loading={claiming}
+                  onClick={handleClaim}
+                >
+                  I have already paid
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Action Details */}
         <div className="bg-white p-5 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.03)] border border-gray-100">
@@ -317,6 +493,26 @@ const CustomerOrderTracking: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Direct-UPI sheet, opened from the payment card above. Closing it
+          refreshes both reads, in case the guest paid in the meantime. */}
+      <PaymentSheet
+        order={
+          showPayment && id
+            ? {
+                orderId: id,
+                orderNumber: order.order_number,
+                tableNumber: null,
+                paymentRequired: true,
+              }
+            : null
+        }
+        onClose={() => {
+          setShowPayment(false);
+          void loadPayment();
+          void loadOrder(true);
+        }}
+      />
     </div>
   );
 };

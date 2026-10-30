@@ -10,8 +10,11 @@
  *   2. anon CANNOT SELECT * from restaurants              (expect empty [])
  *   3. anon CAN call get_restaurant_by_slug               (expect 200 + empty)
  *   4. anon CANNOT INSERT directly into orders            (expect 401/403/RLS error)
+ *   5. anon CANNOT set a payment status                   (expect deny — 050)
+ *   6. anon CANNOT write payment settings                 (expect deny — 050)
+ *   7. anon CAN read payment options by slug              (expect 200 + empty)
  *
- * Exits 0 if all 4 pass, 1 if any fail.
+ * Exits 0 if all 7 pass, 1 if any fail.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -62,6 +65,8 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+// Kept as one number so the footer cannot drift from the checks above.
+const TOTAL = 7;
 let passed = 0;
 let failed = 0;
 
@@ -169,9 +174,60 @@ async function call(path, init = {}) {
       }),
   });
 
+  // ── Migration 050: the payment surface is RPC-only too ────────────────────
+
+  // Test 5: only an owner may confirm money. An anon caller must be refused
+  // before the function ever runs — this is the one write that releases a
+  // kitchen.
+  await check("Test 5: anon sets a payment status (expect deny)", {
+    expect: (status) => [401, 403, 400, 404].includes(status),
+    run: () =>
+      call("/rest/v1/rpc/owner_set_payment_status", {
+        method: "POST",
+        body: JSON.stringify({
+          p_order_id: "00000000-0000-0000-0000-000000000000",
+          p_status: "paid",
+        }),
+      }),
+  });
+
+  // Test 6: anon must not be able to point a restaurant at its own VPA.
+  await check("Test 6: anon writes payment settings (expect deny)", {
+    expect: (status) => [401, 403, 400, 404].includes(status),
+    run: () =>
+      call("/rest/v1/rpc/owner_update_payment_settings", {
+        method: "POST",
+        body: JSON.stringify({
+          p_accepts_cash: true,
+          p_accepts_upi_prepaid: true,
+          p_upi_id: "attacker@example",
+          p_upi_payee_name: "Attacker",
+        }),
+      }),
+  });
+
+  // Test 7: the checkout needs this one, and it must reveal nothing for a slug
+  // that does not exist (or is inactive).
+  await check("Test 7: anon reads payment options by slug (expect 200 + empty)", {
+    expect: (status, body) => {
+      if (status !== 200) return false;
+      try {
+        const parsed = JSON.parse(body);
+        return Array.isArray(parsed) && parsed.length === 0;
+      } catch {
+        return body === "[]" || body === "null" || body === "";
+      }
+    },
+    run: () =>
+      call("/rest/v1/rpc/get_restaurant_payment_options", {
+        method: "POST",
+        body: JSON.stringify({ p_slug: "nonexistent-test-slug" }),
+      }),
+  });
+
   console.log("\n=== Result ===");
-  console.log(`Passed: ${passed}/4`);
-  console.log(`Failed: ${failed}/4`);
+  console.log(`Passed: ${passed}/${TOTAL}`);
+  console.log(`Failed: ${failed}/${TOTAL}`);
   if (failed === 0) {
     console.log("\n✓ All smoke tests passed. Phase 1 hardening is in place.\n");
     process.exit(0);

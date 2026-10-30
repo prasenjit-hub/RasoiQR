@@ -36,6 +36,7 @@ import FloatingCartBar from "./components/FloatingCartBar";
 import ItemCustomizerContent from "./components/ItemCustomizerContent";
 import CheckoutContent from "./components/CheckoutContent";
 import type { PlacedOrderInfo } from "./components/CheckoutContent";
+import PaymentSheet from "./components/PaymentSheet";
 import OrderSuccessToast from "./components/OrderSuccessToast";
 import UndoToast from "./components/UndoToast";
 
@@ -128,6 +129,10 @@ const CustomerMenu: React.FC = () => {
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<PlacedOrderInfo | null>(null);
+  // 💸 A UPI order whose money has not been sent yet. The checkout stores the
+  // choice; this sheet is where the guest actually pays, and it opens before
+  // the success toast so nobody reads "Order placed" and walks away unpaid.
+  const [paymentOrder, setPaymentOrder] = useState<PlacedOrderInfo | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [showItemModal, setShowItemModal] = useState(false);
 
@@ -153,7 +158,7 @@ const CustomerMenu: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   // 🔒 The page behind any open bottom sheet must not scroll.
-  useBodyScrollLock(showCart || showItemModal || showCheckout);
+  useBodyScrollLock(showCart || showItemModal || showCheckout || Boolean(paymentOrder));
 
   // 👋 The Crave-box CTA nudges every 10s of stillness while its sheet is up,
   // so a guest who added items but stopped short of ordering is reminded.
@@ -995,6 +1000,7 @@ const CustomerMenu: React.FC = () => {
             isOpen={showCheckout}
             cart={cart}
             restaurantId={restaurant.id}
+            slug={slug || ""}
             tableCode={tableLabel ? tableCode : undefined}
             tableLabel={tableLabel}
             onClose={() => setShowCheckout(false)}
@@ -1006,7 +1012,13 @@ const CustomerMenu: React.FC = () => {
               // and confirm with the success toast.
               setShowCheckout(false);
               setCart([]);
-              setPlacedOrder(order);
+              // UPI prepaid → pay first, toast after. Everything else keeps the
+              // old single-step success toast.
+              if (order.paymentRequired && order.orderId) {
+                setPaymentOrder(order);
+              } else {
+                setPlacedOrder(order);
+              }
 
               if (order.orderId) {
                 try {
@@ -1033,6 +1045,13 @@ const CustomerMenu: React.FC = () => {
           setShowCart={setShowCart}
         />
       )}
+
+      {/* 💸 Direct-UPI payment sheet (migration 050). Shown instead of the
+          toast for a prepaid order; "Done" then confirms normally. */}
+      {/* Deliberately no toast after this closes: for a prepaid order the
+          sheet IS the confirmation, and "Order placed successfully!" would be
+          a lie to a guest who closed it without paying. */}
+      <PaymentSheet order={paymentOrder} onClose={() => setPaymentOrder(null)} />
 
       {/* ✅ One-shot order confirmation toast (top-centre, auto-dismiss 4s) */}
       {placedOrder && (

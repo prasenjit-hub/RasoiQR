@@ -89,6 +89,17 @@ export interface Restaurant {
    * dine-in ordering needs a table's code, that leaves takeaway only.
    */
   table_count?: number | null;
+  /**
+   * Migration 050: the two payment options the OWNER turned on. At least one is
+   * always true (DB CHECK). When both are on, the guest chooses at checkout and
+   * the choice is stored on the order.
+   */
+  accepts_cash?: boolean;
+  accepts_upi_prepaid?: boolean;
+  /** The restaurant's own VPA — money goes there directly, never to RasoiQR. */
+  upi_id?: string | null;
+  /** The name the payer sees inside their UPI app. */
+  upi_payee_name?: string | null;
   qr_code_url?: string;
   subscription_plan: "free_trial" | "starter" | "pro" | "enterprise";
   status: "active" | "blocked" | "trial";
@@ -167,9 +178,20 @@ export interface Order {
     | "completed"
     | "cancelled"
     | "rejected";
-  payment_method?: string;
-  payment_status?: string;
+  /**
+   * Migration 050: true only when the guest chose "Pay now via UPI". Cash orders
+   * stay false, so the whole payment UI (and the accept gate) ignores them.
+   */
+  payment_required?: boolean;
+  /** 'upi' = prepaid direct UPI; 'counter' = pay at the restaurant. */
+  payment_method?: "upi" | "counter" | string;
+  payment_status?: "pending" | "claimed" | "paid" | "failed" | "expired" | string;
   payment_transaction_id?: string;
+  /** When the guest tapped "I have paid" (migration 050). */
+  payment_claimed_at?: string;
+  /** When a staff member confirmed it in the restaurant's own UPI app. */
+  payment_verified_at?: string;
+  payment_verified_by?: string;
   customer_notes?: string;
   internal_notes?: string;
   accepted_at?: string;

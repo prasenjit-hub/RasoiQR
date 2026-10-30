@@ -89,6 +89,10 @@ const ORDER_PARAMS = [
   "p_items",
   "p_client_ref",
   "p_table_code",
+  // Migration 050: cash vs UPI prepaid, chosen by the guest at checkout. It is
+  // forwarded like every other rule-bearing field, never trusted here — the
+  // RPC validates it against the restaurant's two switches.
+  "p_payment_method",
 ] as const
 
 // Same permissive choice as cloudinary-sign: CORS is not authentication, and
