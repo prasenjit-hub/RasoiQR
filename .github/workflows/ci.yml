@@ -68,9 +68,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24, NOT 20 — and this is not cosmetic. The submit-order suite
+      # imports the real function source (`supabase/functions/submit-order/index.ts`)
+      # so that the file under test is the file that ships. Loading a `.ts` file
+      # needs Node's built-in type stripping, which only exists from 22.6 (off by
+      # default) and 22.18+/24 (on by default). On Node 20 the suite dies with
+      # `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"` before running
+      # a single case — which is exactly what CI run #1 did on 2026-10-30.
+      # 24 also matches the machine the suite was written and verified on.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install
