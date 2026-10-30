@@ -79,6 +79,79 @@ calls the RPC with the anon key fails every order with *permission denied for
 function* — because `anon` no longer holds EXECUTE. `npm run verify:submit-order`
 (17 cases) is the guard: run it before deploying.
 
+## Deploy gate — production only ships after CI passes
+
+**Goal:** a red CI run must not reach production.
+
+⚠️ **Vercel's "Ignored Build Step" (`ignoreCommand`) cannot do this, and is the
+wrong tool for it.** Three reasons, all verified against Vercel's docs:
+
+1. It runs **before** the build, seconds after the push, while CI is still
+   running — there is no verdict to read yet.
+2. Its exit codes are **inverted**: `0` *cancels* the build, `1` continues.
+3. Vercel evaluates it for **Deploy Hook** builds too, so a command that skips
+   "git pushes" also cancels the hook's own build. That is how a site stops
+   updating and nobody notices for a week.
+
+The mechanism that works is `git.deploymentEnabled`: Git-triggered deployments
+stop, Deploy Hooks keep working. CI then becomes the only path to production.
+
+### How it is wired
+
+`.github/workflows/ci.yml` ends with a `Deploy to production` step. It runs only
+after every check is green, only on a push to `main`, and only with the
+`VERCEL_DEPLOY_HOOK_URL` secret present. Red commit → step never runs → the
+previous deployment stays live.
+
+### Phase 1 (already in the repo — nothing is blocked)
+
+With no `VERCEL_DEPLOY_HOOK_URL` secret the step prints a `::warning::` and
+exits 0. Vercel's Git integration still deploys every push, so the gate is not
+active yet but nothing can break.
+
+### Phase 2 (turn the gate on — this order, or deploys stop)
+
+1. Vercel → Project → **Settings → Git → Deploy Hooks** → name it `ci-gate`,
+   branch `main` → **Create Hook** → copy the URL.
+   The URL looks like `https://api.vercel.com/v1/integrations/deploy/…` and is a
+   **secret**: anyone holding it can deploy.
+2. GitHub → Settings → Secrets and variables → Actions → **New secret**
+   → name `VERCEL_DEPLOY_HOOK_URL`, paste the URL.
+3. **Prove the hook works before closing the old path:** Actions → `CI` →
+   *Run workflow* on `main`. The last step must print
+   `hook accepted: HTTP 200`, and a new deployment must appear in Vercel.
+4. Only now, add to [`vercel.json`](../../vercel.json):
+
+   ```json
+   "git": { "deploymentEnabled": false }
+   ```
+
+5. Push. Expect **no** Vercel deployment for the push itself; one appears about
+   a minute later, created by CI.
+
+If the secret is ever missing while `deploymentEnabled` is `false`, the step
+**fails on purpose** with `::error::` instead of skipping quietly — a red run is
+the signal that production is not being updated.
+
+### Turn the gate OFF (back to deploy-on-push)
+
+⚠️ **Reverse order again:** remove `git.deploymentEnabled` from `vercel.json`
+**first**, then delete the secret. Deleting the secret first leaves the repo in
+the state where CI fails and nothing deploys.
+
+### Trade-offs, honestly
+
+- **Preview deployments for branches stop too** — `false` is project-wide. If
+  previews are needed later, restrict it per branch with minimatch patterns, but
+  test that a Deploy Hook still runs for that branch before relying on it.
+- **A Deploy Hook builds the latest commit on its branch, not a pinned SHA.**
+  If you push a second commit in the ~30 s between CI going green and the hook
+  firing, the hook may build that newer, not-yet-tested commit. Push serially
+  while a deploy is in flight (CI already cancels superseded runs per branch).
+- **Dashboard “Redeploy” still works** — this setup never uses `ignoreCommand`,
+  so there is no ignore script to uncheck.
+- Limits: **5 hooks per project** (Hobby/Pro), **60 triggers per hour**.
+
 ## New domain (custom domain, preview URL)
 
 Cloudflare → Turnstile → widget → **Hostnames** → add the bare host, e.g.

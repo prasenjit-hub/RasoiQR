@@ -18,10 +18,21 @@ name: CI
 # 403 on a refused token, fail-open on a Cloudflare outage, and that only an
 # allow-list reaches the RPC.
 #
-# ⚠️ This is an alarm, not a lock. GitHub Actions and Vercel run in parallel, so
-# a red run does not stop the deploy — it tells you within a couple of minutes
-# that it happened. To make this a real gate, add a Vercel "Ignored Build Step"
-# that reads this commit status (see docs/runbooks/order-flow.md).
+# ⚠️ This is a deploy gate, in two ordered phases (docs/runbooks/order-flow.md).
+# The last step fires a Vercel **Deploy Hook**, so it only ever runs once every
+# check above is green. As soon as `git.deploymentEnabled` is `false` in
+# vercel.json, Vercel stops deploying on push entirely and that hook is the only
+# path to production — a red commit then simply never ships, and the previous
+# deployment stays live. Until the flag is flipped this step is a warning: the
+# Git integration still deploys every push, so nothing is blocked yet. The order
+# matters — flip the flag before the hook secret exists and deployments stop
+# dead, silently.
+#
+# ⚠️ Deliberately NOT Vercel's "Ignored Build Step" (`ignoreCommand`). It runs
+# BEFORE the build, seconds after the push, while CI is still going — it has no
+# verdict to read. Worse, Vercel evaluates it for Deploy Hook builds too, so a
+# command that skips "git pushes" also skips the hook's own build. That is how a
+# site stops updating and nobody notices for a week.
 #
 # Notifications are GitHub's own: a failed run emails whoever pushed (Settings →
 # Notifications → Actions). No extra setup and no SMTP secret is involved.
@@ -97,3 +108,35 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The gate itself. Everything above must be green before this runs, and a
+      # Deploy Hook builds the LATEST commit on its branch — hence the strict
+      # branch guard: firing it from a pull request would ship someone else's
+      # code to production.
+      - name: Deploy to production
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          set -euo pipefail
+
+          # No hook secret. Two very different situations, and the file itself
+          # says which one we are in — so this can never be silently wrong:
+          #   · git deploys still on  → warning, Vercel ships it anyway
+          #   · git deploys turned off → ERROR, because nothing would ship
+          # `${VAR:-}` and not `${VAR}`: with `set -u` an UNSET variable aborts
+          # the script, which would look like a failed deploy, not a missing
+          # secret. GitHub sets it to an empty string, but a local run does not.
+          if [ -z "${VERCEL_DEPLOY_HOOK_URL:-}" ]; then
+            if node -e 'const v=require("./vercel.json"); process.exit(v.git?.deploymentEnabled === false ? 0 : 1)'; then
+              echo "::error::vercel.json sets git.deploymentEnabled=false but VERCEL_DEPLOY_HOOK_URL is not set — this commit will NOT reach production."
+              exit 1
+            fi
+            echo "::warning::VERCEL_DEPLOY_HOOK_URL is not set. Vercel's Git integration still deploys this commit, so nothing is blocked — but CI is not gating the deploy yet (phase 1 of docs/runbooks/order-flow.md)."
+            exit 0
+          fi
+
+          echo "Triggering the Vercel deploy hook…"
+          curl -fsS --max-time 30 -X POST "${VERCEL_DEPLOY_HOOK_URL}" \
+            -o /tmp/hook.json -w "hook accepted: HTTP %{http_code}\n"
+          head -c 300 /tmp/hook.json 2>/dev/null || true
